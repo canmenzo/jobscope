@@ -34,11 +34,22 @@ def _has(text, terms):
 
 
 def _matcher(terms):
-    # Leading word boundary only: 'detection' matches 'detections' and
-    # 'threat intel' matches 'threat intelligence', while 'soc' still won't
-    # match inside 'associate' (preceded by a word char).
-    pat = "|".join(re.escape(t) for t in terms)
-    return re.compile(r"(?<!\w)(?:" + pat + r")", re.I)
+    # Always require a leading word boundary. For SHORT tokens (<=3 chars, e.g.
+    # 'soc', 'grc', 'ai') also require a trailing boundary so 'soc' matches
+    # 'SOC Analyst' but not 'social'. For longer stems, leave the trailing side
+    # open so 'threat intel' matches 'threat intelligence', 'threat hunt' matches
+    # 'threat hunter', 'reverse engineer' matches 'reverse engineering', etc.
+    terms = [t for t in terms if t]
+    if not terms:
+        return re.compile(r"(?!x)x")  # matches nothing
+    short = [re.escape(t) for t in terms if len(t) <= 3]
+    long = [re.escape(t) for t in terms if len(t) > 3]
+    parts = []
+    if long:
+        parts.append("(?:" + "|".join(long) + ")")
+    if short:
+        parts.append("(?:" + "|".join(short) + r")(?!\w)")
+    return re.compile(r"(?<!\w)(?:" + "|".join(parts) + r")", re.I)
 
 
 _CLEAR_RE = _matcher(CLEARANCE_TERMS)
