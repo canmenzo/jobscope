@@ -1,0 +1,128 @@
+# Curated catalog of US tech companies reachable via public ATS APIs.
+# Grouped by ATS source. The "slug" is the company's board identifier on that ATS.
+#
+# Every slug below was verified live (it resolved and returned postings) when this
+# list was built. Slugs do go stale over time — when one fails, the dashboard
+# lists it at the BOTTOM with the reason and a direct careers link, so it's easy
+# to spot and prune. Add companies by dropping a slug under the right source.
+#
+# Board URL patterns (used for the careers link when a slug fails):
+#   greenhouse      -> https://job-boards.greenhouse.io/<slug>
+#   lever           -> https://jobs.lever.co/<slug>
+#   ashby           -> https://jobs.ashbyhq.com/<slug>
+#   smartrecruiters -> https://jobs.smartrecruiters.com/<slug>
+#   recruitee       -> https://<slug>.recruitee.com/
+
+greenhouse:
+  - abnormalsecurity
+  - affirm
+  - airbnb
+  - airtable
+  - amplitude
+  - anthropic
+  - asana
+  - axonius
+  - betterment
+  - brex
+  - bugcrowd
+  - calendly
+  - censys
+  - checkr
+  - chime
+  - cloudflare
+  - cockroachlabs
+  - coinbase
+  - cribl
+  - cybereason
+  - databricks
+  - datadog
+  - discord
+  - dragos
+  - dropbox
+  - elastic
+  - exabeam
+  - faire
+  - figma
+  - fivetran
+  - flexport
+  - gemini
+  - gitlab
+  - gusto
+  - huntress
+  - instacart
+  - lattice
+  - life360
+  - lyft
+  - mercury
+  - mixpanel
+  - mongodb
+  - netskope
+  - newrelic
+  - nextdoor
+  - nuro
+  - pagerduty
+  - peloton
+  - postman
+  - recordedfuture
+  - reddit
+  - robinhood
+  - samsara
+  - scaleai
+  - sofi
+  - stripe
+  - sumologic
+  - twilio
+  - twitch
+  - webflow
+  - yubico
+
+lever:
+  - alloy
+  - matchgroup
+  - mistral
+  - netflix
+  - palantir
+  - plaid
+  - ro
+  - shieldai
+  - spotify
+  - swordhealth
+
+ashby:
+  - baseten
+  - browserbase
+  - cohere
+  - cursor
+  - decagon
+  - dust
+  - elevenlabs
+  - harvey
+  - langchain
+  - linear
+  - mintlify
+  - modal
+  - neon
+  - notion
+  - openai
+  - railway
+  - ramp
+  - replit
+  - resend
+  - runway
+  - sierra
+  - speakeasy
+  - supabase
+  - vercel
+  - watershed
+  - workos
+
+# SmartRecruiters + Recruitee fetchers are supported (see fetch.py) but ship
+# empty: few US-tech companies use them with a public board. Add a verified slug
+# here to include it, e.g.:
+#   smartrecruiters:
+#     - Visa
+#   recruitee:
+#     - <slug>   # https://<slug>.recruitee.com must resolve
+smartrecruiters: []
+
+recruitee: []
