@@ -31,12 +31,20 @@ LEVELS = [
 
 
 def _matcher(terms):
+    # See filter._matcher: leading boundary always; trailing boundary only for
+    # short tokens (<=3 chars) so 'soc' won't match 'social' while longer stems
+    # like 'threat intel' still match 'threat intelligence'.
+    terms = [t for t in terms if t]
     if not terms:
         return None
-    # Leading word boundary only (see filter._matcher) so keyword prefixes like
-    # 'threat intel' match 'threat intelligence'.
-    pat = "|".join(re.escape(t) for t in terms)
-    return re.compile(r"(?<!\w)(?:" + pat + r")", re.I)
+    short = [re.escape(t) for t in terms if len(t) <= 3]
+    long = [re.escape(t) for t in terms if len(t) > 3]
+    parts = []
+    if long:
+        parts.append("(?:" + "|".join(long) + ")")
+    if short:
+        parts.append("(?:" + "|".join(short) + r")(?!\w)")
+    return re.compile(r"(?<!\w)(?:" + "|".join(parts) + r")", re.I)
 
 
 def _distinct(rx, text):
