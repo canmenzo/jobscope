@@ -1,0 +1,10 @@
+# User-specific config and output — not shared.
+config/config.yaml
+runs/
+seen_jobs.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

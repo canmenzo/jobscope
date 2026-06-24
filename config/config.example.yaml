@@ -1,0 +1,28 @@
+# Example user config. The real one (config/config.yaml) is written by setup
+# ("run my job hunt" on first use, or "set up my job hunt"). Copy this to
+# config/config.yaml to configure by hand instead.
+
+country: US            # USA only — this is fixed.
+
+# Tech sub-sectors to target. Must be keys from config/taxonomy.yaml.
+sub_sectors:
+  - cybersecurity
+  - software-engineering
+
+# Target job titles. Used (with the sub-sector keywords) to match + rank roles.
+# Free text — add anything; matched as case-insensitive substrings.
+titles:
+  - Detection Engineer
+  - Security Engineer
+  - Software Engineer
+
+# Companies to search. Either the literal string "all" (every entry in
+# companies_catalog.yaml) or an explicit list of {source, slug} picks.
+companies: all
+# companies:
+#   - {source: greenhouse, slug: stripe}
+#   - {source: ashby, slug: workos}
+
+min_score: 55          # drop roles scoring below this (0-100 relevance).
+                       # 55+ = the title matches a selected title/keyword;
+                       # below 55 = description-only matches (noisier).

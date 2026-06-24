@@ -1,0 +1,194 @@
+# Tech-only job taxonomy (USA only).
+# Each sub-sector lists:
+#   titles   - shown in the setup picker; the user chooses which to target
+#   keywords - case-insensitive substrings used to FILTER in-scope roles and SCORE relevance
+# Add/remove freely. Keep everything tech — this skill intentionally ignores
+# non-tech functions (sales, marketing, recruiting, finance, legal, HR, etc.).
+
+sub_sectors:
+  cybersecurity:
+    label: Cybersecurity
+    titles:
+      - Security Analyst
+      - SOC Analyst
+      - Detection Engineer
+      - Detection & Response Engineer
+      - Threat Hunter
+      - Threat Intelligence Analyst
+      - Incident Responder
+      - Security Engineer
+      - Application Security Engineer
+      - Cloud Security Engineer
+      - Product Security Engineer
+      - Offensive Security Engineer / Penetration Tester
+      - Malware Analyst / Reverse Engineer
+      - AI Security Engineer
+      - Security Operations Engineer
+      - GRC / Security Compliance Analyst
+    keywords:
+      - security analyst
+      - soc
+      - detection
+      - threat hunt
+      - threat intel
+      - incident response
+      - incident responder
+      - security engineer
+      - application security
+      - appsec
+      - cloud security
+      - product security
+      - offensive security
+      - penetration test
+      - pentest
+      - red team
+      - blue team
+      - purple team
+      - malware
+      - reverse engineer
+      - security operations
+      - infosec
+      - vulnerability
+      - dfir
+      - ai security
+      - grc
+
+  software-engineering:
+    label: Software Engineering
+    titles:
+      - Software Engineer
+      - Backend Engineer
+      - Frontend Engineer
+      - Full Stack Engineer
+      - Mobile Engineer (iOS / Android)
+      - Staff Software Engineer
+      - Engineering Manager
+    keywords:
+      - software engineer
+      - backend
+      - back end
+      - frontend
+      - front end
+      - full stack
+      - full-stack
+      - ios engineer
+      - android engineer
+      - mobile engineer
+      - web engineer
+      - software developer
+      - sde
+
+  data-ml-ai:
+    label: Data / ML / AI
+    titles:
+      - Data Engineer
+      - Data Scientist
+      - Machine Learning Engineer
+      - AI Engineer
+      - Analytics Engineer
+      - Data Analyst
+    keywords:
+      - data engineer
+      - data scientist
+      - machine learning
+      - ml engineer
+      - ai engineer
+      - applied scientist
+      - analytics engineer
+      - data analyst
+      - mlops
+      - deep learning
+
+  devops-cloud:
+    label: DevOps / SRE / Cloud / Platform
+    titles:
+      - DevOps Engineer
+      - Site Reliability Engineer (SRE)
+      - Platform Engineer
+      - Cloud Engineer
+      - Infrastructure Engineer
+    keywords:
+      - devops
+      - site reliability
+      - sre
+      - platform engineer
+      - cloud engineer
+      - infrastructure engineer
+      - kubernetes
+      - observability
+
+  it-systems:
+    label: IT / Systems / Support
+    titles:
+      - IT Administrator
+      - Systems Administrator
+      - Network Engineer
+      - Help Desk / Technical Support
+      - Systems Engineer
+    keywords:
+      - it administrator
+      - sysadmin
+      - systems administrator
+      - network engineer
+      - help desk
+      - technical support
+      - desktop support
+      - it support
+      - systems engineer
+
+  product-design:
+    label: Product / Design
+    titles:
+      - Product Manager
+      - Technical Program Manager
+      - Product Designer
+      - UX Designer
+    keywords:
+      - product manager
+      - program manager
+      - technical program
+      - product designer
+      - ux designer
+      - ui designer
+      - user experience
+
+  qa-test:
+    label: QA / Test
+    titles:
+      - QA Engineer
+      - Software Engineer in Test (SDET)
+      - Automation Engineer
+    keywords:
+      - qa engineer
+      - quality assurance
+      - sdet
+      - software engineer in test
+      - test engineer
+      - automation engineer
+
+# Hygiene drop-list: titles containing these are never tech roles — dropped
+# regardless of selected sub-sectors so non-tech noise never reaches the results.
+nontech_drop:
+  - sales
+  - account executive
+  - account manager
+  - marketing
+  - recruit
+  - talent acquisition
+  - human resources
+  - people operations
+  - finance
+  - accountant
+  - accounting
+  - controller
+  - legal
+  - counsel
+  - paralegal
+  - office manager
+  - executive assistant
+  - facilities
+  - customer success
+  - customer support
+  - solutions engineer
+  - sales engineer
+  - business development
