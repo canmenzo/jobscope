@@ -11,9 +11,11 @@ fetch_all() returns (jobs, statuses):
   statuses - per-company {name, source, slug, ok, count, error, careers_url}
              so the dashboard can show searched-vs-failed and link failures out.
 """
+import datetime as dt
 import html
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -34,7 +36,8 @@ BOARD_URL = {
 
 HEADERS = {"User-Agent": "job-hunt-skill/2.0 (personal job search)"}
 TIMEOUT = 20
-SLEEP_BETWEEN = 0.5  # be polite
+SLEEP_BETWEEN = 0.5  # be polite (within one company's paginated fetch)
+MAX_WORKERS = 10     # parallel across companies — each hits a different board
 
 # Pretty display names where title-casing the slug isn't enough.
 NAME_OVERRIDES = {
@@ -57,6 +60,17 @@ NAME_OVERRIDES = {
     "huggingface": "Hugging Face",
     "anysphere": "Anysphere (Cursor)",
     "sailpointtechnologies": "SailPoint",
+    "sentinellabs": "SentinelOne",
+    "wizinc": "Wiz",
+    "pantherlabs": "Panther Labs",
+    "materialsecurity": "Material Security",
+    "orcasecurity": "Orca Security",
+    "obsidiansecurity": "Obsidian Security",
+    "bishopfox": "Bishop Fox",
+    "hackerone": "HackerOne",
+    "knowbe4": "KnowBe4",
+    "1password": "1Password",
+    "servicenow": "ServiceNow",
 }
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -75,6 +89,19 @@ def _strip_html(raw):
     text = _WS_RE.sub(" ", text)
     text = _NL_RE.sub("\n\n", text)
     return text.strip()
+
+
+def _iso_date(val):
+    """Normalize an ISO datetime string or epoch-ms to YYYY-MM-DD ('' if unknown)."""
+    if not val:
+        return ""
+    if isinstance(val, (int, float)):
+        try:
+            return dt.datetime.fromtimestamp(val / 1000, dt.timezone.utc).date().isoformat()
+        except (OverflowError, OSError, ValueError):
+            return ""
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", str(val))
+    return m.group(1) if m else ""
 
 
 def _display(slug):
@@ -103,6 +130,7 @@ def fetch_greenhouse(slug):
             "title": (j.get("title") or "").strip(), "location": loc,
             "country": "", "url": j.get("absolute_url", ""),
             "description": _strip_html(j.get("content", "")), "comp": "",
+            "posted": _iso_date(j.get("first_published") or j.get("updated_at")),
         })
     return jobs
 
@@ -120,6 +148,7 @@ def fetch_lever(slug):
             "location": cats.get("location", "") or "", "country": "",
             "url": j.get("hostedUrl") or j.get("applyUrl", ""),
             "description": desc, "comp": cats.get("commitment", "") or "",
+            "posted": _iso_date(j.get("createdAt")),
         })
     return jobs
 
@@ -138,6 +167,7 @@ def fetch_ashby(slug):
             "title": (j.get("title") or "").strip(), "location": loc,
             "country": "", "url": j.get("jobUrl") or j.get("applyUrl", ""),
             "description": desc, "comp": j.get("employmentType", "") or "",
+            "posted": _iso_date(j.get("publishedAt") or j.get("publishedDate")),
         })
     return jobs
 
@@ -161,6 +191,7 @@ def fetch_smartrecruiters(slug):
                 "country": (loc.get("country") or "").upper(),
                 "url": f"https://jobs.smartrecruiters.com/{slug}/{jid}",
                 "description": "", "comp": "",
+                "posted": _iso_date(j.get("releasedDate")),
             })
         total = data.get("totalFound", len(content))
         offset += 100
@@ -183,6 +214,7 @@ def fetch_recruitee(slug):
             "country": (j.get("country_code") or "").upper(),
             "url": j.get("careers_url") or j.get("careers_apply_url", ""),
             "description": _strip_html(j.get("description", "")), "comp": "",
+            "posted": _iso_date(j.get("created_at")),
         })
     return jobs
 
@@ -193,33 +225,39 @@ _FETCHERS = {
 }
 
 
+def _fetch_one(c):
+    """Fetch one company. Returns (status, jobs, logline). Never raises."""
+    source, slug = c["source"], c["slug"]
+    st = {"name": _display(slug), "source": source, "slug": slug, "ok": False,
+          "count": 0, "error": "", "careers_url": board_url(source, slug)}
+    fetcher = _FETCHERS.get(source)
+    if not fetcher:
+        st["error"] = f"unknown source '{source}'"
+        return st, [], f"  ! {source:15} {slug:24} -> unknown source"
+    try:
+        jobs = fetcher(slug)
+        st["ok"] = True
+        st["count"] = len(jobs)
+        return st, jobs, f"  {source:15} {slug:24} -> {len(jobs)} postings"
+    except requests.HTTPError as e:
+        code = e.response.status_code if e.response is not None else "?"
+        st["error"] = f"HTTP {code} (bad slug or board closed)"
+        return st, [], f"  ! {source:15} {slug:24} -> HTTP {code} — skipped"
+    except Exception as e:  # noqa: BLE001 — resilience: never crash the run
+        st["error"] = f"{type(e).__name__}: {e}"
+        return st, [], f"  ! {source:15} {slug:24} -> {type(e).__name__} — skipped"
+
+
 def fetch_all(companies, log):
-    """companies: list of {source, slug}.  Returns (jobs, statuses)."""
+    """companies: list of {source, slug}.  Returns (jobs, statuses).
+
+    Companies are fetched in parallel (each worker hits a different board, so
+    no single host sees a burst); results are logged in catalog order.
+    """
     out, statuses = [], []
-    for c in companies:
-        source, slug = c["source"], c["slug"]
-        name = _display(slug)
-        fetcher = _FETCHERS.get(source)
-        st = {"name": name, "source": source, "slug": slug, "ok": False,
-              "count": 0, "error": "", "careers_url": board_url(source, slug)}
-        if not fetcher:
-            st["error"] = f"unknown source '{source}'"
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        for st, jobs, line in ex.map(_fetch_one, companies):
             statuses.append(st)
-            log(f"  ! {source:15} {slug:24} -> unknown source")
-            continue
-        try:
-            jobs = fetcher(slug)
-            st["ok"] = True
-            st["count"] = len(jobs)
             out.extend(jobs)
-            log(f"  {source:15} {slug:24} -> {len(jobs)} postings")
-        except requests.HTTPError as e:
-            code = e.response.status_code if e.response is not None else "?"
-            st["error"] = f"HTTP {code} (bad slug or board closed)"
-            log(f"  ! {source:15} {slug:24} -> HTTP {code} — skipped")
-        except Exception as e:  # noqa: BLE001 — resilience: never crash the run
-            st["error"] = f"{type(e).__name__}: {e}"
-            log(f"  ! {source:15} {slug:24} -> {type(e).__name__} — skipped")
-        statuses.append(st)
-        time.sleep(SLEEP_BETWEEN)
+            log(line)
     return out, statuses

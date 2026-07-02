@@ -15,9 +15,13 @@ Counting more keywords does NOT inflate the score.
 
 Tiers (for dashboard coloring): STRONG >=80 | GOOD 62-79 | MAYBE <62.
 A seniority level (senior/staff/principal/...) is detected and surfaced for the
-UI, but does NOT change the score — fit-by-level is the user's call.
+UI. By default it does NOT change the score, but config can opt in:
+  downrank_levels: [staff, principal, ...]  -> -25 relevance for those levels
+  exclude_levels:  [director, vp, ...]      -> scored 0 (dropped by min_score)
 """
 import re
+
+LEVEL_PENALTY = 25
 
 # Checked in priority order (principal before senior, etc.).
 LEVELS = [
@@ -82,13 +86,19 @@ def score_job(job, scope):
     else:
         score = 0
 
+    level = _level(title_l)
+    if level and level in scope.get("exclude_levels", ()):
+        score = 0
+    elif level and level in scope.get("downrank_levels", ()):
+        score -= LEVEL_PENALTY
+
     score = max(0, min(100, score))
     tier = "STRONG" if score >= 80 else "GOOD" if score >= 62 else "MAYBE"
 
     matched = sorted(kw_in_title | _distinct(rx_kw, desc) | set(phrase_hits))
     job["score"] = score
     job["tier"] = tier
-    job["level"] = _level(title_l)
+    job["level"] = level
     job["matched"] = matched[:6]
     return job
 

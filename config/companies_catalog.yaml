@@ -16,6 +16,23 @@
 greenhouse:
   - abnormalsecurity
   - affirm
+  - bishopfox
+  - chainguard
+  - coalition
+  - corelight
+  - expel
+  - knowbe4
+  - obsidiansecurity
+  - okta
+  - orcasecurity
+  - pantherlabs
+  - praetorian
+  - rubrik
+  - sentinellabs
+  - tailscale
+  - tines
+  - verkada
+  - wizinc
   - airbnb
   - airtable
   - amplitude
@@ -89,7 +106,14 @@ lever:
   - swordhealth
 
 ashby:
+  - 1password
   - baseten
+  - drata
+  - hackerone
+  - materialsecurity
+  - semgrep
+  - socket
+  - vanta
   - browserbase
   - cohere
   - cursor
@@ -123,6 +147,7 @@ ashby:
 #     - Visa
 #   recruitee:
 #     - <slug>   # https://<slug>.recruitee.com must resolve
-smartrecruiters: []
+smartrecruiters:
+  - ServiceNow
 
 recruitee: []
