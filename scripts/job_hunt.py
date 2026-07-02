@@ -16,6 +16,7 @@ Run from the skill root:
 import argparse
 import datetime as dt
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -31,6 +32,29 @@ from score import score_all                  # noqa: E402
 CONFIG = SKILL_ROOT / "config"
 RUNS = SKILL_ROOT / "runs"
 SEEN_FILE = SKILL_ROOT / "seen_jobs.json"
+SEEN_MAX_AGE_DAYS = 90  # prune seen entries not surfaced in this long
+
+# "$140,000 - $180,000", "$140k–$180K", "$140,000 to $180,000".
+# Sides must be comma-grouped, 4-7 plain digits, or k-suffixed — a bare "$175"
+# (hourly/bonus noise) never matches.
+_SAL_RE = re.compile(
+    r"\$\s?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,7}|\d{2,4}(?:\.\d+)?\s?[kK])"
+    r"\s*(?:-|–|—|to)\s*"
+    r"\$?\s?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,7}|\d{2,4}(?:\.\d+)?\s?[kK])")
+
+
+def _sal_k(s):
+    s = s.lower().replace(",", "").replace(" ", "")
+    return float(s[:-1]) if s.endswith("k") else float(s) / 1000
+
+
+def extract_salary(desc):
+    """First plausible annual USD range in the description, as '$140K–$180K'."""
+    for m in _SAL_RE.finditer(desc or ""):
+        lo, hi = _sal_k(m.group(1)), _sal_k(m.group(2))
+        if 40 <= lo <= hi <= 1500:
+            return f"${lo:.0f}K–${hi:.0f}K"
+    return ""
 
 
 def log(msg):
@@ -131,6 +155,8 @@ def main():
     log("\n[3/4] Scoring relevance...")
     scored = score_all(kept, scope)
     scored = [j for j in scored if j["score"] >= min_score]
+    for j in scored:
+        j["salary"] = extract_salary(j.get("description", ""))
     n_new = sum(1 for j in scored if j["id"] not in seen)
     for j in scored:
         j["new"] = j["id"] not in seen
@@ -157,6 +183,7 @@ def main():
                 "url": j["url"], "comp": j.get("comp", ""), "score": j["score"],
                 "tier": j["tier"], "level": j.get("level", ""),
                 "matched": j.get("matched", []), "new": j["new"],
+                "posted": j.get("posted", ""), "salary": j.get("salary", ""),
             } for j in roles],
         })
 
@@ -193,10 +220,15 @@ def main():
     }
     (run_dir / "_run.json").write_text(json.dumps(run, indent=2), encoding="utf-8")
 
-    # mark surfaced roles as seen
+    # mark surfaced roles as seen; prune entries not surfaced in 90 days
     for j in scored:
-        seen[j["id"]] = {"first_seen": date, "company": j["company"],
-                         "title": j["title"], "url": j["url"]}
+        entry = seen.get(j["id"]) or {"first_seen": date, "company": j["company"],
+                                      "title": j["title"], "url": j["url"]}
+        entry["last_seen"] = date
+        seen[j["id"]] = entry
+    cutoff = (dt.date.today() - dt.timedelta(days=SEEN_MAX_AGE_DAYS)).isoformat()
+    seen = {k: v for k, v in seen.items()
+            if v.get("last_seen", v.get("first_seen", date)) >= cutoff}
     save_seen(seen)
 
     log(f"\n  {run['stats']['companies_with_jobs']} companies with matches · "

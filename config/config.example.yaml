@@ -26,3 +26,10 @@ companies: all
 min_score: 55          # drop roles scoring below this (0-100 relevance).
                        # 55+ = the title matches a selected title/keyword;
                        # below 55 = description-only matches (noisier).
+
+# Optional seniority handling. Detected levels: intern junior associate entry
+# senior lead staff principal manager director vp head.
+# downrank_levels: -25 relevance (sinks below clean matches, still visible).
+# exclude_levels: scored 0 (dropped entirely by min_score).
+downrank_levels: []
+exclude_levels: []
