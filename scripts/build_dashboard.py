@@ -213,8 +213,8 @@ def row(j):
         score_tip = ""
     else:
         why = "; ".join(j.get("fit_reasons") or []) or "nothing holding it back"
-        score_tip = (f' title="Relevance {j.get("relevance", j["score"])} '
-                     f'&middot; Fit {j["fit"]} &mdash; {esc(why)}"')
+        score_tip = (f' data-tip="<b>Relevance {j.get("relevance", j["score"])}'
+                     f' &middot; Fit {j["fit"]}</b><br>{esc(why)}"')
     badges = ""
     if j.get("new"):
         badges += '<span class="tag new">NEW</span>'
@@ -281,7 +281,7 @@ def dropdown(btn_label, fields, tip, align=""):
     data_single = f'data-facet="{single}"' if single else ""
     return f"""    <div class="fdd" {data_single}
          data-fields='{html.escape(json.dumps(fields), quote=True)}' data-align="{align}">
-      <button class="fbtn" title="{esc(tip)}">{esc(btn_label)}<span class="n hidden">0</span><span class="car">&#9662;</span></button>
+      <button class="fbtn" data-tip="{esc(tip)}">{esc(btn_label)}<span class="n hidden">0</span><span class="car">&#9662;</span></button>
     </div>"""
 
 
@@ -334,13 +334,13 @@ PAGE = """<!doctype html>
   <div class="top">
     <div class="brand">Jobscope</div>
     <div class="kpi">
-      <span title="Roles passing the filters you have set right now"><b id="shown">0</b> shown</span>
-      <span title="Every role this run matched, before filtering"><b>__JOBS__</b> roles</span>
-      <span title="Distinct companies across those roles"><b>__COMPANIES__</b> companies</span>
-      <span title="Roles you have moved onto the board (Applied and beyond)"><b id="kTracked">0</b> tracked</span>
-      <span class="warn" title="Possible ghost jobs: the req has stayed open unusually long, or the same title keeps getting reposted under a new id. Often an evergreen pipeline rather than a live opening.">
+      <span data-tip="Roles passing the filters you have set right now"><b id="shown">0</b> shown</span>
+      <span data-tip="Every role this run matched, before filtering"><b>__JOBS__</b> roles</span>
+      <span data-tip="Distinct companies across those roles"><b>__COMPANIES__</b> companies</span>
+      <span data-tip="Roles you have moved onto the board (Applied and beyond)"><b id="kTracked">0</b> tracked</span>
+      <span class="warn" data-tip="<b>Possible ghost jobs.</b> The req has stayed open unusually long, or the same title keeps getting reposted under a new id. Often an evergreen pipeline rather than a live opening.">
         <b>__GHOSTS__</b> ghosts</span>
-      <span title="Duplicate rows folded together: the same title at the same company posted once per city becomes one row carrying every location"><b>__MERGED__</b> merged</span>
+      <span data-tip="<b>Duplicate rows folded together.</b> The same title at the same company posted once per city becomes one row carrying every location"><b>__MERGED__</b> merged</span>
     </div>
     <div class="tabs">
       <button class="tab on" data-view="board">Board</button>
@@ -353,14 +353,14 @@ PAGE = """<!doctype html>
     <div class="listpane" id="listpane">
       <div class="filters">
         <input class="search" id="q" placeholder="Search title, company, location…  ( / )" autocomplete="off">
-        <button class="fbtn on" id="freshBtn" title="Hide anything posted more than 30 days ago. Long-open reqs are usually filled or were never real.">Fresh <span class="n">30d</span></button>
+        <button class="fbtn on" id="freshBtn" data-tip="Hide anything posted more than 30 days ago. Long-open reqs are usually filled or were never real.">Fresh <span class="n">30d</span></button>
 __FILTERS__
-        <button class="fbtn" id="newBtn" title="Only roles that were not present on any previous run">New</button>
-        <button class="fbtn" id="ghostBtn" title="Only roles flagged as possible ghost jobs — open unusually long, or repeatedly relisted">Ghosts</button>
-        <button class="fbtn" id="clrBtn" title="Clear the search and every active filter">Reset</button>
+        <button class="fbtn" id="newBtn" data-tip="Only roles that were not present on any previous run">New</button>
+        <button class="fbtn" id="ghostBtn" data-tip="Hide roles flagged as possible ghost jobs — open unusually long, or the same title repeatedly relisted under a new id.">Hide ghosts</button>
+        <button class="fbtn" id="clrBtn" data-tip="Clear the search and every active filter">Reset</button>
       </div>
       <div class="lhead">
-        <span data-sort="score" class="sorted" title="__SCORETIP__">Score</span>
+        <span data-sort="score" class="sorted" data-tip="__SCORETIP__">Score</span>
         <span data-sort="title">Role</span>
         <span data-sort="company">Company</span>
         <span data-sort="location">Location</span>

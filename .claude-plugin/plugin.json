@@ -1,0 +1,10 @@
+{
+  "name": "jobscope",
+  "description": "USA tech job search: pulls live postings from six public ATS APIs, scores them on how good they are for YOU, and opens a drag-and-drop pipeline dashboard. Never auto-applies, never writes resumes.",
+  "version": "1.0.0",
+  "author": { "name": "Can Ozmen", "url": "https://github.com/canmenzo" },
+  "homepage": "https://github.com/canmenzo/jobscope",
+  "license": "MIT",
+  "keywords": ["jobs", "job-search", "cybersecurity", "ats", "career"],
+  "skills": "."
+}

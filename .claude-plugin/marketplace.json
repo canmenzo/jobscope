@@ -1,0 +1,16 @@
+{
+  "name": "jobscope",
+  "owner": {
+    "name": "Can Ozmen",
+    "url": "https://github.com/canmenzo"
+  },
+  "plugins": [
+    {
+      "name": "jobscope",
+      "source": "./",
+      "category": "productivity",
+      "description": "USA tech job search with fit scoring and a drag-and-drop pipeline board."
+    }
+  ],
+  "description": "Job-search tooling for Claude Code. One plugin: jobscope, a USA tech job search with fit scoring and a pipeline board."
+}
