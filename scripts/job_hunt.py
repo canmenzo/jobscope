@@ -76,6 +76,41 @@ def extract_yoe(desc):
     return min(years) if years else None
 
 
+def _norm_title(t):
+    """Loose title key for spotting the same role twice: case/punctuation-free."""
+    return re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
+
+
+def annotate_history(jobs, seen, today):
+    """Attach cross-run signals that a single snapshot can't show.
+
+    first_seen / open_days — how long WE have watched this exact posting stay
+    open, which is independent of (and more trustworthy than) the board's own
+    posted date.
+    reposted — the same company+title has appeared under a different posting id
+    before. A req that keeps getting torn down and relisted is the classic
+    ghost-job / evergreen-pipeline signature.
+    """
+    by_title = {}
+    for jid, e in seen.items():
+        key = ((e.get("company") or "").lower(), _norm_title(e.get("title")))
+        by_title.setdefault(key, []).append((jid, e.get("first_seen", "")))
+
+    for j in jobs:
+        entry = seen.get(j["id"]) or {}
+        first = entry.get("first_seen") or today
+        j["first_seen"] = first
+        try:
+            j["open_days"] = (dt.date.fromisoformat(today)
+                              - dt.date.fromisoformat(first)).days
+        except ValueError:
+            j["open_days"] = 0
+        key = ((j.get("company") or "").lower(), _norm_title(j.get("title")))
+        others = [i for i, _ in by_title.get(key, []) if i != j["id"]]
+        j["reposted"] = len(others)
+    return jobs
+
+
 def log(msg):
     print(msg, flush=True)
 
@@ -184,7 +219,10 @@ def main():
         j["new"] = j["id"] not in seen
     if args.new_only:
         scored = [j for j in scored if j["new"]]
-    log(f"  >= {min_score}: {len(scored)} roles ({n_new} new)")
+    date = dt.date.today().isoformat()
+    annotate_history(scored, seen, date)
+    n_repost = sum(1 for j in scored if j["reposted"])
+    log(f"  >= {min_score}: {len(scored)} roles ({n_new} new, {n_repost} relisted)")
 
     log("\n[4/4] Grouping by company + writing run file...")
     by_slug = {}
@@ -207,6 +245,9 @@ def main():
                 "matched": j.get("matched", []), "new": j["new"],
                 "posted": j.get("posted", ""), "age_days": j.get("age_days"),
                 "salary": j.get("salary", ""), "yoe": j.get("yoe"),
+                "first_seen": j.get("first_seen", ""),
+                "open_days": j.get("open_days", 0),
+                "reposted": j.get("reposted", 0),
             } for j in roles],
         })
 
@@ -220,7 +261,6 @@ def main():
         return (0, -c["jobs"][0]["score"])
     companies_out.sort(key=sort_key)
 
-    date = dt.date.today().isoformat()
     run_dir = RUNS / date
     run_dir.mkdir(parents=True, exist_ok=True)
 

@@ -107,31 +107,70 @@ The icon is generated, not hand-drawn — regenerate it with
 Every run writes `runs/<DATE>/index.html` and opens it. Zero dependencies —
 vanilla JS in a single self-contained file.
 
-- **Stats header** — roles, new, companies, in-pipeline, non-US hidden, failed
-  boards. All counts update live as you filter. Click **companies** for a
-  multi-select company panel.
-- **Facet bar** — Status, Type, Category, Level, Experience, Posted, Salary,
-  State, Source. Multi-select within a group is OR, across groups is AND.
+- **Stats header** — roles, new, companies, in-pipeline, possible ghosts, merged,
+  non-US hidden, failed boards. Every count reflects the filtered view.
+- **Stage strip** — the eight funnel stages with live counts. Click any one to
+  filter the grid to it.
+- **Filter bar** — one row of dropdowns: Stage, Type, Category, Level,
+  Experience, Posted, Salary, State, Source, Company. Every dropdown is
+  **searchable** and multi-select, with live counts that account for the other
+  active filters. Multi-select within a group is OR, across groups is AND.
 - **Role cards** — relevance score, remote/hybrid/on-site pill, company, region,
-  posting age, extracted salary range, required-years chip, matched keywords,
-  and an **Apply** link.
+  posting age, extracted salary range, required-years chip, matched keywords, an
+  **Apply** link, a stage dropdown, and a note/date panel.
 - **Fresh only (≤30d)** — on by default. Long-open reqs are usually filled or
   never existed; this keeps them out of your way without deleting them.
-- Live search, sort (score / new first / company A–Z), and clear-filters.
-- Companies that searched OK but matched nothing, collapsed at the bottom.
-- **Failed boards** at the very bottom with the reason and a careers link, so
-  dead slugs are easy to spot and prune.
+- Live search, sort (score / newest posted / new first / company A–Z), clear-all.
+- **Filters persist** in the URL hash and `localStorage`, so a reload — or the
+  next run's dashboard — comes back to the same view. Copy the URL to share or
+  bookmark a specific slice.
+- Companies that searched OK but matched nothing, collapsed at the bottom, then
+  **failed boards** with the reason and a careers link.
 
-## Application tracking
+## The application pipeline
 
-Each card has a status dropdown: **not applied → applied → interviewing →
-rejected**. Applied cards get a green border, interviewing gets amber, rejected
-dims out. Status is a facet, so "show me everything I've applied to" is one click.
+![The pipeline Sankey](docs/pipeline.png)
+
+Each card carries a stage: **Not applied → Applied → Screening → Interview →
+Offer → Accepted**, with **Rejected** and **No response** as exits. Cards tint by
+stage — deepening blue along the funnel, green at Accepted, dimmed when rejected
+or ghosted.
+
+Every stage change is timestamped into a per-role history, and the **Sankey**
+above the grid draws the flow between them: how many applications became
+screens, how many screens became interviews, and where each branch dropped out.
+Drop-offs branch off the spine at the stage they actually happened, so the shape
+tells you *where* you're losing momentum, not just the totals.
+
+It defaults to **All applications** — your pipeline shouldn't shrink because a
+posting aged past the freshness filter — and a toggle switches it to follow the
+current filters instead. Hover any flow or node for exact counts.
+
+Each card also takes a free-text **note** and an **applied date** (the ✎ button).
 
 State lives in browser `localStorage`, so it survives rebuilds and carries across
 runs. **Export applications** downloads the whole set as `applications.json`;
 drop that file in the repo root and every future dashboard is seeded from it
 (useful for backup, or for moving to another machine/browser).
+
+*(The screenshot above uses sample data — a fresh install starts empty.)*
+
+## Ghost-job detection
+
+Two signals a single snapshot can't give you, both derived from `seen_jobs.json`
+across runs:
+
+- **Open duration** — how long *this tool* has watched a posting stay open,
+  independent of (and more trustworthy than) the board's own posted date.
+- **Relisting** — the same company + title reappearing under a new posting id.
+  A req that keeps getting torn down and reposted is the classic evergreen /
+  always-hiring pipeline, not a live opening.
+
+Either one earns a **GHOST?** badge (hover for the reason); **Ghosts only**
+filters to them so you can decide whether they're worth your time.
+
+Separately, the same role opened once per city is **merged into one card** with a
+"N locations" chip, so a company posting to five metros stops flooding the grid.
 
 ## Relevance score (0-100)
 
@@ -174,8 +213,9 @@ Workday/iCIMS/Google careers aren't reachable by these public APIs.
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q          # 65 tests: location parsing, the filter gate, scoring,
-                   # freshness decay, YOE + salary extraction
+pytest -q          # 82 tests: location parsing, the filter gate, scoring,
+                   # freshness decay, YOE + salary extraction, ghost/relist
+                   # detection, duplicate merging
 ruff check scripts tests
 ```
 
@@ -201,6 +241,8 @@ job-hunt/
     score.py                0-100 relevance, freshness + seniority + YOE
     job_hunt.py             orchestrator (run this)
     build_dashboard.py      build + open the web app
+    dashboard_assets.py     the page's CSS + JS (inlined, no CDN)
+  docs/                     README screenshots
   launcher/
     make_icon.py            renders jobscope.ico
     jobscope.ico            taskbar icon

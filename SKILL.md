@@ -70,16 +70,22 @@ tracks them across runs.
 python scripts/build_dashboard.py
 ```
 Writes `runs/<DATE>/index.html` and opens it. The web app shows:
-- a stats header (roles, new, companies, in-pipeline, non-US hidden, failed) —
-  all counts recompute as filters change,
-- a **facet bar** (Status, Type, Category, Level, Experience, Posted, Salary,
-  State, Source); multi-select is OR within a group, AND across groups,
-- a **grid of role cards** — score badge, Apply link, "NEW" badge, salary,
-  posting age, required-years chip, matched-keyword chips,
-- an application **status dropdown** per card (not applied / applied /
-  interviewing / rejected), persisted in localStorage and exportable,
-- a live search box, sort control, **New only**, and **Fresh only (≤30d)**
-  which is ON by default,
+- a stats header (roles, new, companies, in-pipeline, possible ghosts, merged,
+  non-US hidden, failed) — all counts recompute as filters change,
+- a **stage strip** — the 8 funnel stages with live counts, clickable as filters,
+- an **application pipeline Sankey** — flow between stages, with drop-offs
+  branching where they happened; defaults to all applications, toggleable to
+  follow the current filters,
+- a **filter bar** of searchable multi-select dropdowns (Stage, Type, Category,
+  Level, Experience, Posted, Salary, State, Source, Company); OR within a
+  group, AND across groups,
+- a **grid of role cards** — score badge, Apply link, "NEW"/"GHOST?" badges,
+  salary, posting age, required-years chip, location count when merged,
+- per card: a **stage dropdown**, a free-text **note** and an **applied date**,
+  persisted in localStorage and exportable to `applications.json`,
+- a live search box, sort control, **New only**, **Ghosts only**, and
+  **Fresh only (≤30d)** which is ON by default,
+- filters persisted in the URL hash + localStorage (shareable/bookmarkable),
 - companies that searched OK but matched nothing (collapsed list),
 - **failed boards at the bottom** with the failure reason and a direct careers
   link, so dead slugs are easy to spot and prune.
@@ -101,5 +107,13 @@ and applies to everything himself.
   `freshness` decays stale postings, `max_yoe` downranks roles demanding more
   experience than the user has, `downrank_levels` / `exclude_levels` handle
   seniority. Raise `min_score` to tighten, don't hand-filter.
-- Run `pytest -q` after touching `filter.py`, `score.py`, or the extractors.
+- **Cross-run signals:** `seen_jobs.json` drives `open_days` (how long we've
+  watched a req stay open) and `reposted` (same company+title under a new id).
+  Either flags a possible ghost req. Same title at the same company across
+  cities is merged into one card at render time.
+- Page CSS/JS live in `scripts/dashboard_assets.py` and are inlined verbatim;
+  `build_dashboard.py` only substitutes `__TOKEN__` placeholders (no `.format()`,
+  so JS braces need no escaping).
+- Run `pytest -q` after touching `filter.py`, `score.py`, `build_dashboard.py`,
+  or the extractors.
 - **No auto-apply, no resume/cover generation, ever.**
