@@ -358,21 +358,33 @@ PAGE = """<!doctype html>
 <body>
 <div class="app">
   <div class="top">
-    <div class="brand">Jobscope</div>
-    <div class="kpi">
-      <span data-tip="Roles passing the filters you have set right now"><b id="shown">0</b> shown</span>
-      <span data-tip="Every role this run matched, before filtering"><b>__JOBS__</b> roles</span>
-      <span data-tip="Distinct companies across those roles"><b>__COMPANIES__</b> companies</span>
-      <span data-tip="Roles you have moved onto the board (Applied and beyond)"><b id="kTracked">0</b> tracked</span>
-      <span class="warn" data-tip="<b>Possible ghost jobs.</b> The req has stayed open unusually long, or the same title keeps getting reposted under a new id. Often an evergreen pipeline rather than a live opening.">
-        <b>__GHOSTS__</b> ghosts</span>
-      <span data-tip="<b>Duplicate rows folded together.</b> The same title at the same company posted once per city becomes one row carrying every location"><b>__MERGED__</b> merged</span>
-    </div>
     <div class="tabs">
       <button class="tab on" data-view="board">Board</button>
       <button class="tab" data-view="flow">Flow</button>
     </div>
-    <div class="live"><span class="dot"></span>__DATE__ &middot; USA &middot; Tech</div>
+
+    <a class="brand" href="#" data-tip="Run of __DATE__ &middot; USA &middot; tech only.
+       Nothing is submitted for you.">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="8.5" fill="none" stroke="currentColor" stroke-width="2.6"/>
+        <path d="M16 2.5v6M16 23.5v6M2.5 16h6M23.5 16h6" stroke="currentColor"
+              stroke-width="2.6" stroke-linecap="round"/>
+        <circle cx="21" cy="11" r="3.6" fill="var(--bg)"/>
+        <circle cx="21" cy="11" r="2.4" fill="#22ff9c"/>
+      </svg>
+      <span>Jobscope<b></b></span>
+    </a>
+
+    <div class="kpi">
+      <span data-tip="Roles passing the filters you have set right now, out of every role this run matched">
+        <b id="shown">0</b><i>/</i><b class="tot">__JOBS__</b> shown</span>
+      <span data-tip="Distinct companies across those roles"><b>__COMPANIES__</b> companies</span>
+      <span data-tip="Roles you have moved onto the board (Applied and beyond)"><b id="kTracked">0</b> tracked</span>
+      <span class="warn" data-tip="<b>Possible ghost jobs.</b> The req has stayed open unusually long, or the same title keeps getting reposted under a new id. Often an evergreen pipeline rather than a live opening.">
+        <b>__GHOSTS__</b> ghosts</span>
+      <span data-tip="<b>Duplicate rows folded together.</b> The same title at the same company posted once per city becomes one row carrying every location">
+        <b>__MERGED__</b> merged</span>
+    </div>
   </div>
 
   <div class="main">

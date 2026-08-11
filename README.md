@@ -124,8 +124,9 @@ A dense **list** on the left and a drag-and-drop **kanban** on the right.
   things progress, and drag one **back onto the list** to untrack it. Every
   move raises an **Undo** toast.
 - **Closed strip** — Accepted · Rejected · No response. Also drop targets.
-- Click a kanban card to open an inline **note**; the card shows a ✎ when it
-  has one. The date you first move something to Applied is recorded.
+- A kanban card's **title links to the posting** — a card parked in Applied is
+  exactly what you come back to apply to. Clicking anywhere else on the card
+  opens an inline **note**; the card shows a ✎ when it has one. The date you first move something to Applied is recorded.
 - **Filters** — a single thin row above the list: search (`/` focuses it),
   **Fresh ≤30d** (on by default), Stage, Type, Category, and **More** for
   Level, Experience, Posted, Salary, State, Source and Company. Every dropdown
