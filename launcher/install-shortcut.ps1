@@ -1,6 +1,7 @@
 <#
-Creates the "Job Scope" shortcut on the Desktop and in the Start Menu.
-Clicking it runs a fresh hunt and opens the dashboard in the browser.
+Creates two shortcuts on the Desktop and in the Start Menu:
+  Job Scope        - runs a fresh hunt (~20s of fetching), then opens it
+  Job Scope (Open) - just rebuilds and opens the last result, no network
 
     powershell -ExecutionPolicy Bypass -File launcher\install-shortcut.ps1
 
@@ -9,11 +10,16 @@ only offers "Pin to taskbar" for shortcuts whose target is an executable.
 #>
 $launcher = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $launcher
-$bat = Join-Path $launcher 'run-jobscope.bat'
-$icon = Join-Path $launcher 'jobscope.ico'
-
-foreach ($f in @($bat, $icon)) {
-    if (-not (Test-Path $f)) { throw "missing: $f (run make_icon.py first?)" }
+$shortcuts = @(
+    @{ Name = 'Job Scope'; Bat = 'run-jobscope.bat'; Icon = 'jobscope.ico'
+       Desc = 'Run a fresh job hunt and open the dashboard' },
+    @{ Name = 'Job Scope (Open)'; Bat = 'open-dashboard.bat'; Icon = 'jobscope-open.ico'
+       Desc = 'Open the last dashboard without fetching anything' }
+)
+foreach ($s in $shortcuts) {
+    foreach ($f in @((Join-Path $launcher $s.Bat), (Join-Path $launcher $s.Icon))) {
+        if (-not (Test-Path $f)) { throw "missing: $f (run make_icon.py first?)" }
+    }
 }
 
 $targets = @(
@@ -24,13 +30,15 @@ $targets = @(
 $shell = New-Object -ComObject WScript.Shell
 foreach ($dir in $targets) {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    $lnk = $shell.CreateShortcut((Join-Path $dir 'Job Scope.lnk'))
-    $lnk.TargetPath = "$env:SystemRoot\System32\cmd.exe"
-    $lnk.Arguments = "/c `"`"$bat`"`""
-    $lnk.WorkingDirectory = $root
-    $lnk.IconLocation = "$icon,0"
-    $lnk.Description = 'Run a fresh job hunt and open the dashboard'
-    $lnk.WindowStyle = 1
-    $lnk.Save()
-    Write-Host "created $(Join-Path $dir 'Job Scope.lnk')"
+    foreach ($s in $shortcuts) {
+        $lnk = $shell.CreateShortcut((Join-Path $dir "$($s.Name).lnk"))
+        $lnk.TargetPath = "$env:SystemRoot\System32\cmd.exe"
+        $lnk.Arguments = "/c `"`"$(Join-Path $launcher $s.Bat)`"`""
+        $lnk.WorkingDirectory = $root
+        $lnk.IconLocation = "$(Join-Path $launcher $s.Icon),0"
+        $lnk.Description = $s.Desc
+        $lnk.WindowStyle = 1
+        $lnk.Save()
+        Write-Host "created $(Join-Path $dir "$($s.Name).lnk")"
+    }
 }

@@ -37,5 +37,11 @@ certifications:
 # title is coy. Set 0 to ignore pay entirely.
 salary_target: 100000
 
+# Set true if you need an employer to sponsor a work visa (F-1/OPT, H-1B, TN…).
+# Postings that plainly say they cannot sponsor are then scored as unreachable
+# and tagged NO SPONSOR — they stay visible, because that boilerplate is
+# sometimes stale and only you can judge it.
+needs_sponsorship: false
+
 stretch_ok: true             # keep REACH roles visible (they are never hidden,
                              # only ranked below reachable ones)

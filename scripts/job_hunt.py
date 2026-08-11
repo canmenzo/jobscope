@@ -99,6 +99,49 @@ def extract_yoe(desc):
     return min(soft) if soft else None
 
 
+# Visa sponsorship. Applying to a posting that says "we cannot sponsor" is pure
+# wasted effort for anyone on a student or work visa, and the posting almost
+# always says so plainly — it is just buried in the legal boilerplate.
+#
+# NEGATIVE is checked first and wins, because every negative phrasing contains
+# a positive one ("not able to sponsor" contains "to sponsor"). Both patterns
+# are deliberately narrow: a false "no" hides a real job, which is worse than
+# leaving it unknown.
+_SPONSOR_NO = re.compile(
+    r"(?:"
+    r"(?:not|unable|unwilling)\s+(?:be\s+)?(?:able\s+|willing\s+|in\s+a\s+position\s+)?"
+    r"to\s+(?:provide\s+|offer\s+)?(?:visa\s+|immigration\s+)?sponsor"
+    r"|do(?:es)?\s+not\s+(?:currently\s+)?(?:offer|provide|support)?\s*(?:visa\s+)?sponsor"
+    r"|will\s+not\s+(?:be\s+)?(?:provide|offer|sponsor)"
+    r"|no\s+(?:visa\s+|immigration\s+)?sponsorship"
+    r"|without\s+(?:the\s+need\s+for\s+|any\s+need\s+for\s+|current\s+or\s+future\s+)?"
+    r"(?:visa\s+|employer\s+)?sponsorship"
+    r"|not\s+(?:be\s+)?eligible\s+for\s+(?:visa\s+)?sponsorship"
+    r"|must\s+be\s+(?:a\s+)?(?:u\.?\s?s\.?|united\s+states)\s+citizen"
+    r"|(?:u\.?\s?s\.?|united\s+states)\s+citizens?\s+(?:or|and)\s+(?:lawful\s+)?permanent\s+resident"
+    r")", re.I)
+_SPONSOR_YES = re.compile(
+    r"(?:"
+    r"(?:visa|h-?1b|immigration)\s+sponsorship\s+(?:is\s+)?(?:available|offered|provided)"
+    r"|sponsorship\s+(?:is\s+)?(?:available|offered|provided)"
+    r"|(?:will|do|can|happy\s+to|open\s+to|able\s+to|willing\s+to)\s+sponsor"
+    r"|we\s+sponsor"
+    r"|provide\s+(?:visa\s+|h-?1b\s+)?sponsorship"
+    r"|eligible\s+for\s+(?:visa\s+)?sponsorship"
+    r"|(?:opt|cpt|stem\s+opt)\s+(?:candidates|students)?\s*(?:are\s+)?welcome"
+    r")", re.I)
+
+
+def extract_sponsorship(desc):
+    """'no' | 'yes' | '' for what a posting says about visa sponsorship."""
+    text = desc or ""
+    if _SPONSOR_NO.search(text):
+        return "no"
+    if _SPONSOR_YES.search(text):
+        return "yes"
+    return ""
+
+
 def _norm_title(t):
     """Loose title key for spotting the same role twice: case/punctuation-free."""
     return re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
@@ -255,6 +298,7 @@ def main():
     for j in scored:
         j["salary"] = extract_salary(j.get("description", ""))
         j["salary_low"] = _sal_low_usd(j["salary"])
+        j["sponsorship"] = extract_sponsorship(j.get("description", ""))
     if profile:
         for j in scored:
             j["relevance"] = j["score"]
@@ -292,6 +336,7 @@ def main():
                 "matched": j.get("matched", []), "new": j["new"],
                 "posted": j.get("posted", ""), "age_days": j.get("age_days"),
                 "salary": j.get("salary", ""), "yoe": j.get("yoe"),
+                "sponsorship": j.get("sponsorship", ""),
                 "relevance": j.get("relevance", j["score"]),
                 "fit": j.get("fit"), "fit_reasons": j.get("fit_reasons", []),
                 "first_seen": j.get("first_seen", ""),

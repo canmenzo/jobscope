@@ -89,6 +89,8 @@ STALE_BUCKETS = ("90d", "old")
 YOE_LABEL = {"0-2": "0–2 yrs", "3-5": "3–5 yrs", "6-8": "6–8 yrs",
              "9+": "9+ yrs", "na": "Unstated"}
 SAL_LABEL = {"1": "Listed", "0": "Not listed"}
+SPON_LABEL = {"yes": "Sponsors visas", "no": "Will not sponsor",
+              "": "Not stated"}
 STALE_DAYS = 60
 GHOST_OPEN_DAYS = 45
 
@@ -115,7 +117,7 @@ PRIMARY_FACETS = ["status", "type", "cat"]
 FACETS = [
     ("status", "Stage"), ("type", "Type"), ("cat", "Category"), ("level", "Level"),
     ("yoe", "Experience"), ("age", "Posted"), ("sal", "Salary"), ("state", "State"),
-    ("src", "Source"), ("company", "Company"),
+    ("src", "Source"), ("company", "Company"), ("spon", "Sponsorship"),
 ]
 
 
@@ -237,6 +239,12 @@ def row(j):
         why = (f'relisted under {j["reposted"] + 1} posting ids' if j.get("reposted")
                else f'open at least {j.get("open_days", 0)} days')
         badges += f'<span class="tag ghost" title="Possible evergreen req: {esc(why)}">GHOST</span>'
+    if j.get("sponsorship") == "no":
+        badges += ('<span class="tag nospon" data-tip="This posting states it will not '
+                   'sponsor a work visa.">NO SPONSOR</span>')
+    elif j.get("sponsorship") == "yes":
+        badges += ('<span class="tag spon" data-tip="This posting says visa sponsorship '
+                   'is available.">SPONSORS</span>')
     if j.get("_dupes"):
         badges += f'<span class="tag loc" title="{esc(" · ".join(j["_locs"]))}">{j["_dupes"]} LOC</span>'
     age = j["_age"]
@@ -247,7 +255,8 @@ def row(j):
        data-type="{j['_type']}" data-level="{esc(j.get('level') or 'none')}"
        data-cat="{slug(j['_cat'])}" data-src="{j['_src']}" data-state="{' '.join(j['_states'])}"
        data-age="{j['_agebucket']}" data-sal="{int(bool(j.get('salary')))}"
-       data-yoe="{j['_yoebucket']}" data-company="{slug(j['comp'])}"
+       data-yoe="{j['_yoebucket']}" data-spon="{j.get('sponsorship') or ''}"
+       data-company="{slug(j['comp'])}"
        data-score="{j['score']}" data-days="{age if age is not None else 9999}"
        data-salnum="{sal_num(j.get('salary'))}" data-ttl="{esc(j['title'].lower())}"
        data-comp="{esc(j['comp'].lower())}" data-loc="{esc(region_text(j).lower())}">
@@ -279,11 +288,13 @@ def facet_meta(jobs):
         "level": {lv: lv.capitalize() for lv in LEVEL_ORDER} | {"none": "Unspecified"},
         "yoe": YOE_LABEL, "age": AGE_LABEL, "sal": SAL_LABEL,
         "state": {}, "src": SOURCE_NAME, "company": cnames,
+        "spon": SPON_LABEL,
     }
     order = {
         "status": [k for k, _, _ in STAGES], "type": list(TYPE_LABEL),
         "level": LEVEL_ORDER, "yoe": list(YOE_LABEL), "age": list(AGE_LABEL),
         "sal": ["1", "0"], "cat": [], "state": [], "src": [], "company": [],
+        "spon": ["no", "yes", ""],
     }
     return {f: {"order": order.get(f, []), "labels": labels.get(f, {})}
             for f, _ in FACETS}

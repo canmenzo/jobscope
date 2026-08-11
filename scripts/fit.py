@@ -35,6 +35,10 @@ LADDER_POS = {name: i for i, name in enumerate(LADDER)}
 DEFAULT_LEVEL = "mid"
 
 W_YEARS, W_LEVEL, W_SKILLS, W_PAY = 40, 25, 25, 10
+# Fit awarded to a role that explicitly rules out sponsorship, when the profile
+# needs it. Low enough to sink below everything reachable, not zero — the score
+# floor is reserved for "we could not read this at all".
+SPONSOR_BLOCKED = 5
 
 
 def _norm(s):
@@ -57,6 +61,7 @@ def load_profile(raw):
         "certifications": [str(c).lower() for c in (raw.get("certifications") or []) if c],
         "salary_target": float(raw.get("salary_target") or 0),
         "stretch_ok": bool(raw.get("stretch_ok", True)),
+        "needs_sponsorship": bool(raw.get("needs_sponsorship", False)),
     }
 
 
@@ -134,6 +139,9 @@ def score_fit(job, profile):
         total += pts
         if why:
             reasons.append(why)
+    if profile.get("needs_sponsorship") and job.get("sponsorship") == "yes":
+        total = min(100.0, total + 4)
+        reasons.append("sponsors visas")
     return int(round(max(0.0, min(100.0, total)))), reasons
 
 

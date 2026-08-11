@@ -204,6 +204,12 @@ workday:
   - workday:wd5:Workday
   - leidos:wd5:External
   - gdit:wd5:External_Career_Site
+  # verified live 2026-08-11 — banks/insurers/telecom, where SOC analyst work is
+  - keybank:wd5:External_Career_Site
+  - pnc:wd5:External
+  - tmobile:wd1:External
+  - unum:wd1:External
+  - vystarcu:wd1:Careers          # Jacksonville FL credit union
 
 # Probed and confirmed DEAD — no public board on that ATS. Don't re-add these
 # without re-probing; they cost a request and a failed-board row every run.
