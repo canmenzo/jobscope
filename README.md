@@ -92,12 +92,13 @@ and opens the dashboard:
 powershell -ExecutionPolicy Bypass -File launcher\install-shortcut.ps1
 ```
 
-That drops **Job Scope** on your Desktop and in the Start Menu. Right-click it →
-*Show more options* → **Pin to taskbar** (or just drag it onto the taskbar).
+That drops two shortcuts on your Desktop and in the Start Menu. Right-click
+either → *Show more options* → **Pin to taskbar**.
 
-Clicking it opens a small console showing fetch progress (~20s), then launches
-the dashboard in your browser and closes itself. If the run fails, the window
-stays open with the error.
+- **Job Scope** — runs a fresh hunt. A small console shows fetch progress
+  (~20s), then the dashboard opens and the console closes itself.
+- **Job Scope (Open)** — rebuilds and opens the last result. No network, about
+  a second. Different icon colour so the two are never confused on the taskbar.
 
 The icon is generated, not hand-drawn — regenerate it with
 `python launcher/make_icon.py`.
@@ -157,6 +158,23 @@ timestamped into a per-role history, which is what the Sankey draws.
 State lives in browser `localStorage`, so it survives rebuilds and carries
 across runs. A dashboard built later is seeded from `applications.json` in the
 skill root if that file exists.
+
+## Visa sponsorship
+
+Applying to a posting that will not sponsor is wasted effort, and the posting
+almost always says so — buried in boilerplate. Every description is scanned for
+both refusals ("unable to sponsor", "must be authorized to work without
+sponsorship", "US citizens or permanent residents") and offers ("visa
+sponsorship is available", "we will sponsor H-1B"). Refusals win, because every
+refusal contains the words of an offer.
+
+Roles are tagged **NO SPONSOR** or **SPONSORS**, and **Sponsorship** is a facet
+under More. Set `needs_sponsorship: true` in your profile and a role that rules
+sponsorship out is scored as unreachable — it stays visible, because that
+boilerplate is sometimes stale and only you can judge it.
+
+The negative pattern is deliberately narrow: a false "no" hides a job you could
+have had, which is worse than leaving it unknown.
 
 ## Ghost-job detection
 
@@ -249,7 +267,7 @@ Workday/iCIMS/Google careers aren't reachable by these public APIs.
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q          # 129 tests: location parsing, the filter gate, scoring,
+pytest -q          # 152 tests: location parsing, the filter gate, scoring,
                    # freshness decay, YOE + salary extraction, ghost/relist
                    # detection, duplicate merging
 ruff check scripts tests
@@ -286,6 +304,7 @@ job-hunt/
     make_icon.py            renders jobscope.ico
     jobscope.ico            taskbar icon
     run-jobscope.bat        hunt + build + open, with progress
+    open-dashboard.bat      reopen the last result, no fetching
     install-shortcut.ps1    creates the Desktop/Start Menu shortcut
   tests/                    pytest suite
   runs/<DATE>/_run.json     grouped results

@@ -58,7 +58,11 @@ onboarding BEFORE searching. You drive this conversationally:
      - **target levels** — beware vendor ladders, an MDR "Principal" at 2.5
        years is not a product company's Principal, so confirm rather than
        reading the title literally;
-     - remote / hybrid / on-site preference.
+     - remote / hybrid / on-site preference;
+     - **work authorization** — ask whether they need visa sponsorship
+       (F-1/OPT, H-1B, TN). If yes, set `needs_sponsorship: true`; postings
+       that state they will not sponsor are then scored as unreachable and
+       tagged NO SPONSOR.
    Write
    `config/profile.yaml` (schema: `config/profile.example.yaml`). If they have
    no resume handy, collect the same fields with AskUserQuestion. Skipping this

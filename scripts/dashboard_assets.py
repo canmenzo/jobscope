@@ -180,6 +180,8 @@ button{font-family:inherit}
 .tag.ghost{background:#2a1004;color:#fb923c}
 .tag.new{background:#04230f;color:#22ff9c}
 .tag.loc{background:#0d1b2e;color:#7fb0f7}
+.tag.nospon{background:#2a0a0a;color:#f87171}
+.tag.spon{background:#04220f;color:#4ade80}
 .stagedot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-left:6px;
           vertical-align:1px;box-shadow:0 0 7px currentColor}
 .racts{position:absolute;right:9px;top:50%;transform:translateY(-50%);display:none;gap:4px;
