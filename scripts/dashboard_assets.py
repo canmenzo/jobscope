@@ -62,26 +62,42 @@ button{font-family:inherit}
 .app{display:flex;flex-direction:column;height:100vh}
 
 /* ---------------------------------------------------------------- top bar */
-.top{display:flex;align-items:center;gap:16px;padding:0 16px;height:50px;flex-shrink:0;
+/* Tabs left, brand dead-centre, stats right. The brand is absolutely centred
+   rather than flexed, so it stays on the page's midline no matter how wide the
+   two side groups grow. The mark is the same reticle as the taskbar icon. */
+.top{display:flex;align-items:center;gap:16px;padding:0 16px;height:52px;flex-shrink:0;
      background:var(--pane);border-bottom:1px solid var(--edge);position:relative;z-index:40;
      box-shadow:0 1px 0 #c026d333,0 8px 26px -16px #c026d355}
-.brand{font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;
-       color:var(--neon-ink);text-shadow:0 0 12px #f0abfc99,0 0 32px #c026d355}
-.kpi{display:flex;gap:13px;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.brand{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+       display:flex;align-items:center;gap:9px;text-decoration:none;
+       color:var(--neon-ink);white-space:nowrap;transition:filter .25s}
+.brand:hover{filter:brightness(1.15)}
+.brand svg{width:21px;height:21px;flex-shrink:0;color:var(--neon);
+           filter:drop-shadow(0 0 6px #c026d3aa)}
+.brand span{font-size:14px;font-weight:800;letter-spacing:4.5px;text-transform:uppercase;
+            text-shadow:0 0 14px #f0abfcaa,0 0 34px #c026d366}
+.brand b{display:inline-block;width:5px;height:5px;border-radius:50%;background:#22ff9c;
+         box-shadow:0 0 8px #22ff9c;margin-left:6px;vertical-align:3px;
+         animation:pulse 2.6s infinite}
+@keyframes pulse{0%{opacity:1}50%{opacity:.3}100%{opacity:1}}
+
+.kpi{margin-left:auto;display:flex;gap:14px;font-size:11.5px;color:var(--ink-3);
+     white-space:nowrap;z-index:1}
 .kpi b{font-family:var(--num);color:var(--ink);font-size:13px}
-.kpi span[data-tip]{border-bottom:1px dotted var(--edge-2)}
+.kpi i{font-style:normal;color:var(--ink-4);margin:0 1px}
+.kpi .tot{color:var(--ink-3);font-size:12px}
+.kpi span{cursor:help;transition:color .15s}
+.kpi span:hover{color:var(--ink-2)}
 .kpi .warn b{color:var(--amber)}
+
 .tabs{display:flex;gap:3px;padding:3px;background:var(--field);border:1px solid var(--edge-2);
-      border-radius:var(--r)}
+      border-radius:var(--r);z-index:1}
 .tab{padding:5px 15px;font-size:10.5px;font-weight:700;letter-spacing:1.4px;cursor:pointer;
      background:none;border:0;color:var(--ink-3);border-radius:5px;transition:.2s}
 .tab:hover{color:var(--ink-2)}
 .tab.on{background:#2a0733;color:var(--neon-ink);box-shadow:0 0 14px #c026d344,inset 0 0 12px #c026d322}
-.live{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:1.2px;
-      color:var(--ink-4);text-transform:uppercase;white-space:nowrap}
-.live .dot{width:6px;height:6px;border-radius:50%;background:#22ff9c;box-shadow:0 0 9px #22ff9c;
-           animation:pulse 2.6s infinite}
-@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
+
+@media(max-width:1240px){ .brand span{display:none} }
 
 .main{flex:1;display:flex;min-height:0}
 
@@ -232,8 +248,11 @@ button{font-family:inherit}
 .kc:hover::after{transform:translateX(130%)}
 .kc.dragging{opacity:.35}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.kc .kt{font-size:11.5px;font-weight:600;line-height:1.32;color:var(--ink);margin-bottom:2px;
-        padding-right:16px}
+.kc .kt{display:block;font-size:11.5px;font-weight:600;line-height:1.32;color:var(--ink);
+        margin-bottom:2px;padding-right:18px;text-decoration:none;transition:color .15s}
+.kc .kt:hover{color:var(--neon-ink);text-shadow:0 0 10px #c026d366}
+.kc .kt::after{content:'97';opacity:0;margin-left:5px;font-size:10px;transition:opacity .15s}
+.kc:hover .kt::after{opacity:.55}
 .kc .kco{font-size:10.5px;color:var(--ink-3)}
 .kmeta{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:9.5px;color:var(--ink-4);
        font-family:var(--num);flex-wrap:wrap}
@@ -656,10 +675,15 @@ function kcard(id) {
   const note = (e.note || '').trim();
   const div = document.createElement('div');
   div.className = 'kc'; div.draggable = true; div.dataset.id = id;
-  div.innerHTML = `<button class="kx" title="Back to Not applied">\\u00d7</button>
-    <div class="kt">${j.title}</div><div class="kco">${j.comp}</div>
+  // The title is the way to the posting — a card you have parked in Applied is
+  // exactly the thing you come back to apply to. draggable="false" on the
+  // anchor matters: without it the browser hijacks the card's drag with its own
+  // link-drag, and the card can no longer be moved by grabbing its title.
+  div.innerHTML = `<button class="kx" data-tip="Back to Not applied">\\u00d7</button>
+    <a class="kt" href="${j.url}" target="_blank" rel="noopener" draggable="false"
+       data-tip="Open the posting to apply">${j.title}</a><div class="kco">${j.comp}</div>
     <div class="kmeta"><span>${j.region}</span><span>\\u00b7</span><span>${j.age}</span>
-      ${note ? '<span class="nbadge" title="Has a note">\\u270e</span>' : ''}
+      ${note ? '<span class="nbadge" data-tip="Has a note">\\u270e</span>' : ''}
       <span class="ks">${j.salary || ''}</span></div>`;
   return div;
 }
@@ -760,6 +784,7 @@ $('.cols').addEventListener('dragend', e => {
 $('.cols').addEventListener('click', e => {
   const x = e.target.closest('.kx');
   if (x) { move(x.closest('.kc').dataset.id, 'none'); return; }
+  if (e.target.closest('a')) return;        // opening the posting is not a note
   const card = e.target.closest('.kc');
   if (!card || e.target.classList.contains('knote')) return;
   let n = card.querySelector('.knote');
