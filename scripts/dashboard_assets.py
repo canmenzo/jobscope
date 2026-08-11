@@ -68,18 +68,21 @@ button{font-family:inherit}
 .top{display:flex;align-items:center;gap:16px;padding:0 16px;height:52px;flex-shrink:0;
      background:var(--pane);border-bottom:1px solid var(--edge);position:relative;z-index:40;
      box-shadow:0 1px 0 #c026d333,0 8px 26px -16px #c026d355}
+/* The wordmark used to stack two text-shadow glows under an 800 weight, which
+   smears the letter edges and reads as pixelated at 14px. One soft drop-shadow
+   on the whole mark renders far cleaner than glow baked into the glyphs, and
+   the gradient fill carries the neon without touching legibility. */
 .brand{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-       display:flex;align-items:center;gap:9px;text-decoration:none;
-       color:var(--neon-ink);white-space:nowrap;transition:filter .25s}
-.brand:hover{filter:brightness(1.15)}
-.brand svg{width:21px;height:21px;flex-shrink:0;color:var(--neon);
-           filter:drop-shadow(0 0 6px #c026d3aa)}
-.brand span{font-size:14px;font-weight:800;letter-spacing:4.5px;text-transform:uppercase;
-            text-shadow:0 0 14px #f0abfcaa,0 0 34px #c026d366}
-.brand b{display:inline-block;width:5px;height:5px;border-radius:50%;background:#22ff9c;
-         box-shadow:0 0 8px #22ff9c;margin-left:6px;vertical-align:3px;
-         animation:pulse 2.6s infinite}
-@keyframes pulse{0%{opacity:1}50%{opacity:.3}100%{opacity:1}}
+       display:flex;align-items:center;gap:10px;text-decoration:none;
+       color:var(--neon-ink);white-space:nowrap;
+       filter:drop-shadow(0 0 9px #c026d34d);transition:filter .25s}
+.brand:hover{filter:drop-shadow(0 0 14px #c026d380) brightness(1.08)}
+.brand svg{width:20px;height:20px;flex-shrink:0;color:var(--neon)}
+.brand span{font-size:15px;font-weight:700;letter-spacing:5.5px;text-transform:uppercase;
+            background:linear-gradient(96deg,#f5c2fe 0%,#e879f9 48%,#67e8f9 100%);
+            -webkit-background-clip:text;background-clip:text;color:transparent;
+            -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+            text-rendering:optimizeLegibility;padding-right:5px}
 
 .kpi{margin-left:auto;display:flex;gap:14px;font-size:11.5px;color:var(--ink-3);
      white-space:nowrap;z-index:1}
@@ -211,6 +214,7 @@ button{font-family:inherit}
 /* ----------------------------------------------------------- right board */
 .right{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--bg)}
 .board{flex:1;display:flex;flex-direction:column;min-height:0;padding:11px 13px;gap:9px}
+.board .closed{order:-1}
 .cols{flex:1;display:flex;gap:9px;min-height:0}
 .col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0;
      border-radius:var(--r-lg);background:var(--panel);border:1px solid var(--edge);
@@ -270,7 +274,7 @@ button{font-family:inherit}
 .slot{border:1px dashed var(--edge-2);border-radius:var(--r);padding:18px 10px;text-align:center;
       font-size:10.5px;color:var(--ink-4);line-height:1.5}
 
-.closed{flex-shrink:0;display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:var(--r-lg);
+.closed{flex-shrink:0;display:flex;align-items:center;gap:7px;padding:7px 11px;border-radius:var(--r-lg);
         background:var(--panel);border:1px dashed var(--edge-2);font-size:10.5px;color:var(--ink-3)}
 .closed .lab{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;
              color:var(--ink-4);margin-right:2px}
@@ -310,6 +314,15 @@ button{font-family:inherit}
 .sk-node:hover{filter:brightness(1.3)}
 .flow-empty{color:var(--ink-3);font-size:13px;line-height:1.7;padding:30px 4px;text-align:center}
 .flow-empty b{color:var(--neon-ink)}
+
+.foot{flex-shrink:0;display:flex;align-items:center;gap:8px;height:26px;padding:0 16px;
+      font-size:10.5px;color:var(--ink-4);background:var(--pane);
+      border-top:1px solid var(--edge)}
+.foot .sep{opacity:.4}
+/* Not .right — that class is the board pane and carries flex:1, which
+   would stretch this span instead of pushing it over. */
+.foot .fend{margin-left:auto}
+.foot b{font-family:var(--num);color:var(--ink-3);font-weight:400}
 
 .tip{position:fixed;z-index:90;max-width:330px;padding:9px 12px;font-size:12px;line-height:1.55;
      color:var(--ink-2);background:#0a0a13;border:1px solid var(--edge-2);border-radius:9px;

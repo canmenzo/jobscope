@@ -372,7 +372,7 @@ PAGE = """<!doctype html>
         <circle cx="21" cy="11" r="3.6" fill="var(--bg)"/>
         <circle cx="21" cy="11" r="2.4" fill="#22ff9c"/>
       </svg>
-      <span>Jobscope<b></b></span>
+      <span>Jobscope</span>
     </a>
 
     <div class="kpi">
@@ -437,6 +437,12 @@ __CLOSED__
         </div>
       </div>
     </div>
+  </div>
+  <div class="foot">
+    <span>Last refreshed <b>__BUILT__</b></span>
+    <span class="sep">&middot;</span>
+    <span>run of <b>__DATE__</b></span>
+    <span class="fend">USA &middot; tech only &middot; nothing is submitted for you</span>
   </div>
 </div>
 <div class="tip hidden" id="tip"></div>
@@ -517,6 +523,7 @@ def build(date=None, do_open=True):
             .replace("__COMPANIES__", str(len({j["comp"] for j in jobs})))
             .replace("__GHOSTS__", str(ghosts))
             .replace("__JS__", js)
+            .replace("__BUILT__", dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
             .replace("__DATE__", esc(data["date"])))
 
     out = run_dir / "index.html"
