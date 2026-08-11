@@ -448,9 +448,6 @@ __CLOSED__
   </div>
   <div class="foot">
     <span>Last refreshed <b>__BUILT__</b></span>
-    <span class="sep">&middot;</span>
-    <span>run of <b>__DATE__</b></span>
-    <span class="fend">USA &middot; tech only &middot; nothing is submitted for you</span>
   </div>
 </div>
 <div class="tip hidden" id="tip"></div>
