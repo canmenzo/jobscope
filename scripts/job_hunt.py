@@ -25,8 +25,9 @@ import yaml
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 
-from fetch import board_url, fetch_all  # noqa: E402
+from fetch import board_url, fetch_all, hydrate_descriptions  # noqa: E402
 from filter import build_scope, filter_jobs  # noqa: E402
+from fit import blend, load_profile, score_fit  # noqa: E402
 from score import score_all  # noqa: E402
 
 CONFIG = SKILL_ROOT / "config"
@@ -41,6 +42,12 @@ _SAL_RE = re.compile(
     r"\$\s?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,7}|\d{2,4}(?:\.\d+)?\s?[kK])"
     r"\s*(?:-|–|—|to)\s*"
     r"\$?\s?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,7}|\d{2,4}(?:\.\d+)?\s?[kK])")
+
+
+def _sal_low_usd(salary):
+    """Lower bound of an extracted '$140K-$180K' string, in whole dollars."""
+    m = re.search(r"\$(\d+)K", salary or "")
+    return int(m.group(1)) * 1000 if m else 0
 
 
 def _sal_k(s):
@@ -63,17 +70,33 @@ _YOE_RE = re.compile(
     r"(\d{1,2})\s*(?:\+|plus)?\s*(?:(?:-|–|—|to)\s*\d{1,2}\s*\+?)?\s*years?"
     r"[^.\n]{0,60}?\bexperience\b", re.I)
 
+# A mention qualified by one of these is about a NICE-TO-HAVE or an adjacent
+# skill ("2+ years with Terraform a plus"), not the role's actual bar.
+_YOE_SOFT = re.compile(
+    r"\b(preferred|preferably|nice to have|a plus|bonus|ideally|desirable|"
+    r"advantage|familiarity)\b", re.I)
+
 
 def extract_yoe(desc):
-    """Lowest years-of-experience requirement stated in the description.
+    """The role's real years-of-experience bar, or None.
 
-    Deliberately the MINIMUM across all mentions: a posting saying "3+ years
-    required, 8+ preferred" has a real bar of 3, and under-reporting keeps
-    reachable roles visible rather than penalizing them.
+    Takes the HIGHEST requirement among mentions that read as hard requirements,
+    ignoring ones qualified as preferred/nice-to-have. An earlier version took
+    the global minimum, which produced nonsense like a "Manager, Product
+    Security Engineering" reading as a 1-year role because some adjacent skill
+    deep in the description wanted "1+ year". Falling back to the minimum only
+    when every mention is soft keeps genuinely junior postings from inflating.
     """
-    years = [int(m.group(1)) for m in _YOE_RE.finditer(desc or "")]
-    years = [y for y in years if 0 < y <= 20]
-    return min(years) if years else None
+    hard, soft = [], []
+    for m in _YOE_RE.finditer(desc or ""):
+        y = int(m.group(1))
+        if not 0 < y <= 20:
+            continue
+        window = (desc or "")[m.start(): m.end() + 60]
+        (soft if _YOE_SOFT.search(window) else hard).append(y)
+    if hard:
+        return max(hard)
+    return min(soft) if soft else None
 
 
 def _norm_title(t):
@@ -179,6 +202,8 @@ def main():
 
     config = load_yaml(cfg_path)
     taxonomy = load_yaml(CONFIG / "taxonomy.yaml")
+    profile_path = CONFIG / "profile.yaml"
+    profile = load_profile(load_yaml(profile_path)) if profile_path.exists() else None
     catalog = load_yaml(CONFIG / "companies_catalog.yaml")
     min_score = args.min_score if args.min_score is not None \
         else int(config.get("min_score", 55))
@@ -192,13 +217,28 @@ def main():
     log(f"sub-sectors: {', '.join(config.get('sub_sectors', [])) or '(none)'}")
     log(f"titles: {', '.join(config.get('titles', [])) or '(none)'}")
     log(f"companies: {len(companies)}   min-score: {min_score}")
+    log("profile: " + (f"{profile['years']:g} yrs, targeting "
+                       f"{'/'.join(profile['target_levels'])}, "
+                       f"{len(profile['skills'])} skills"
+                       if profile else "none — scoring on relevance only"))
 
     log("\n[1/4] Fetching postings...")
-    jobs, statuses = fetch_all(companies, log)
+    jobs, statuses = fetch_all(companies, log, config.get("workday_search") or None)
     log(f"  total postings pulled: {len(jobs)}")
 
     log("\n[2/4] Filtering (USA + selected sectors)...")
     kept, dropped = filter_jobs(jobs, scope)
+    # Workday's list endpoint carries no description, so those postings clear
+    # the first gate on their title alone. Fetch the real text for survivors
+    # and re-run the gate — otherwise clearance-required roles slip through and
+    # nothing downstream (years-of-experience, salary, skills) has text to read.
+    pending = [j for j in kept if j.get("detail_url")]
+    if pending:
+        hydrate_descriptions(pending, log)
+        rekept, redropped = filter_jobs(pending, scope)
+        survived = {j["id"] for j in rekept}
+        kept = [j for j in kept if not j.get("detail_url") or j["id"] in survived]
+        dropped += redropped
     log(f"  kept: {len(kept)}   dropped: {len(dropped)}")
     reasons = {}
     for _, r in dropped:
@@ -214,6 +254,13 @@ def main():
     scored = [j for j in scored if j["score"] >= min_score]
     for j in scored:
         j["salary"] = extract_salary(j.get("description", ""))
+        j["salary_low"] = _sal_low_usd(j["salary"])
+    if profile:
+        for j in scored:
+            j["relevance"] = j["score"]
+            j["fit"], j["fit_reasons"] = score_fit(j, profile)
+            j["score"] = blend(j["relevance"], j["fit"])
+        scored.sort(key=lambda j: -j["score"])
     n_new = sum(1 for j in scored if j["id"] not in seen)
     for j in scored:
         j["new"] = j["id"] not in seen
@@ -245,6 +292,8 @@ def main():
                 "matched": j.get("matched", []), "new": j["new"],
                 "posted": j.get("posted", ""), "age_days": j.get("age_days"),
                 "salary": j.get("salary", ""), "yoe": j.get("yoe"),
+                "relevance": j.get("relevance", j["score"]),
+                "fit": j.get("fit"), "fit_reasons": j.get("fit_reasons", []),
                 "first_seen": j.get("first_seen", ""),
                 "open_days": j.get("open_days", 0),
                 "reposted": j.get("reposted", 0),

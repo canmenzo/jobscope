@@ -39,7 +39,8 @@ RUNS = SKILL_ROOT / "runs"
 APPS_FILE = SKILL_ROOT / "applications.json"
 
 SOURCE_NAME = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
-               "smartrecruiters": "SmartRecruiters", "recruitee": "Recruitee"}
+               "smartrecruiters": "SmartRecruiters", "recruitee": "Recruitee",
+               "workday": "Workday"}
 LEVEL_ORDER = ["intern", "junior", "associate", "entry", "senior", "lead",
                "staff", "principal", "manager", "director", "vp", "head", "none"]
 
@@ -90,6 +91,16 @@ YOE_LABEL = {"0-2": "0–2 yrs", "3-5": "3–5 yrs", "6-8": "6–8 yrs",
 SAL_LABEL = {"1": "Listed", "0": "Not listed"}
 STALE_DAYS = 60
 GHOST_OPEN_DAYS = 45
+
+SCORE_TIP = (
+    "How good this role is FOR YOU, 0-100. Blends two things: relevance "
+    "(does it match the titles and keywords you are searching for) and fit "
+    "(could you realistically get it — years of experience asked for vs yours, "
+    "the level of the title, how much of your toolkit it names, and whether the "
+    "posted pay band sits above you). Fit carries the larger share. "
+    "Hover a score to see what pulled that one down. "
+    "Add config/profile.yaml to switch fit on; without it this is relevance only."
+)
 
 # Facets shown as their own button; everything else lives under "More".
 PRIMARY_FACETS = ["status", "type", "cat"]
@@ -198,6 +209,12 @@ def region_text(j):
 
 
 def row(j):
+    if j.get("fit") is None:
+        score_tip = ""
+    else:
+        why = "; ".join(j.get("fit_reasons") or []) or "nothing holding it back"
+        score_tip = (f' title="Relevance {j.get("relevance", j["score"])} '
+                     f'&middot; Fit {j["fit"]} &mdash; {esc(why)}"')
     badges = ""
     if j.get("new"):
         badges += '<span class="tag new">NEW</span>'
@@ -219,7 +236,7 @@ def row(j):
        data-score="{j['score']}" data-days="{age if age is not None else 9999}"
        data-salnum="{sal_num(j.get('salary'))}" data-ttl="{esc(j['title'].lower())}"
        data-comp="{esc(j['comp'].lower())}" data-loc="{esc(region_text(j).lower())}">
-    <div class="sc">{j['score']}</div>
+    <div class="sc"{score_tip}>{j['score']}</div>
     <div class="rt"><a href="{esc(j['url'])}" target="_blank" rel="noopener">{esc(j['title'])}</a>{badges}</div>
     <div class="rc">{esc(j['comp'])}</div>
     <div class="rl">{esc(region_text(j))}</div>
@@ -232,23 +249,13 @@ def row(j):
   </div>"""
 
 
-def dropdown(btn_label, fields, labels_by_field, order_by_field, align=""):
-    """A searchable multi-select. `fields` with one entry is a single facet;
-    with several it becomes the grouped "More" menu."""
-    single = fields[0] if len(fields) == 1 else ""
-    data_single = f'data-facet="{single}"' if single else ""
-    labels, order = {}, []
-    for f in fields:
-        labels.update(labels_by_field.get(f, {}))
-        order += order_by_field.get(f, [])
-    return f"""    <div class="fdd" {data_single} data-fields='{html.escape(json.dumps(fields), quote=True)}'
-         data-order='{html.escape(json.dumps(order), quote=True)}'
-         data-labels='{html.escape(json.dumps(labels), quote=True)}' data-align="{align}">
-      <button class="fbtn">{esc(btn_label)}<span class="n hidden">0</span><span class="car">&#9662;</span></button>
-    </div>"""
+def facet_meta(jobs):
+    """{field: {order, labels}} for every facet, emitted once as a JS global.
 
-
-def build_filters(jobs):
+    Deliberately NOT stored per-dropdown in the DOM: the facets grouped under
+    "More" have no element of their own, so a DOM lookup returned null and
+    silently emptied that entire menu.
+    """
     cnames = {slug(j["comp"]): j["comp"] for j in jobs if j.get("comp")}
     labels = {
         "status": {k: lab for k, lab, _ in STAGES},
@@ -263,10 +270,34 @@ def build_filters(jobs):
         "level": LEVEL_ORDER, "yoe": list(YOE_LABEL), "age": list(AGE_LABEL),
         "sal": ["1", "0"], "cat": [], "state": [], "src": [], "company": [],
     }
-    out = [dropdown(lab, [f], labels, order)
+    return {f: {"order": order.get(f, []), "labels": labels.get(f, {})}
+            for f, _ in FACETS}
+
+
+def dropdown(btn_label, fields, tip, align=""):
+    """A searchable multi-select. One field = a single facet; several = the
+    grouped "More" menu."""
+    single = fields[0] if len(fields) == 1 else ""
+    data_single = f'data-facet="{single}"' if single else ""
+    return f"""    <div class="fdd" {data_single}
+         data-fields='{html.escape(json.dumps(fields), quote=True)}' data-align="{align}">
+      <button class="fbtn" title="{esc(tip)}">{esc(btn_label)}<span class="n hidden">0</span><span class="car">&#9662;</span></button>
+    </div>"""
+
+
+FACET_TIPS = {
+    "status": "Where each role sits in your pipeline",
+    "type": "Remote, hybrid or on-site",
+    "cat": "Role family, derived from the job title",
+}
+
+
+def build_filters():
+    out = [dropdown(lab, [f], FACET_TIPS.get(f, lab))
            for f, lab in FACETS if f in PRIMARY_FACETS]
     rest = [f for f, _ in FACETS if f not in PRIMARY_FACETS]
-    out.append(dropdown("More", rest, labels, order, align="right"))
+    names = ", ".join(dict(FACETS)[f] for f in rest)
+    out.append(dropdown("More", rest, f"More filters: {names}", align="right"))
     return "\n".join(out)
 
 
@@ -303,11 +334,13 @@ PAGE = """<!doctype html>
   <div class="top">
     <div class="brand">Jobscope</div>
     <div class="kpi">
-      <span><b id="shown">0</b> shown</span>
-      <span><b>__JOBS__</b> roles</span>
-      <span><b>__COMPANIES__</b> companies</span>
-      <span><b id="kTracked">0</b> tracked</span>
-      <span class="warn"><b>__GHOSTS__</b> ghosts</span>
+      <span title="Roles passing the filters you have set right now"><b id="shown">0</b> shown</span>
+      <span title="Every role this run matched, before filtering"><b>__JOBS__</b> roles</span>
+      <span title="Distinct companies across those roles"><b>__COMPANIES__</b> companies</span>
+      <span title="Roles you have moved onto the board (Applied and beyond)"><b id="kTracked">0</b> tracked</span>
+      <span class="warn" title="Possible ghost jobs: the req has stayed open unusually long, or the same title keeps getting reposted under a new id. Often an evergreen pipeline rather than a live opening.">
+        <b>__GHOSTS__</b> ghosts</span>
+      <span title="Duplicate rows folded together: the same title at the same company posted once per city becomes one row carrying every location"><b>__MERGED__</b> merged</span>
     </div>
     <div class="tabs">
       <button class="tab on" data-view="board">Board</button>
@@ -320,15 +353,14 @@ PAGE = """<!doctype html>
     <div class="listpane" id="listpane">
       <div class="filters">
         <input class="search" id="q" placeholder="Search title, company, location…  ( / )" autocomplete="off">
-        <button class="fbtn on" id="freshBtn">Fresh <span class="n">30d</span></button>
+        <button class="fbtn on" id="freshBtn" title="Hide anything posted more than 30 days ago. Long-open reqs are usually filled or were never real.">Fresh <span class="n">30d</span></button>
 __FILTERS__
-        <button class="fbtn" id="newBtn">New</button>
-        <button class="fbtn" id="ghostBtn">Ghosts</button>
-        <button class="fbtn" id="clrBtn" title="Clear all filters">&#10005;</button>
-        <button class="fbtn" id="expBtn" title="Export applications.json">&#8681;</button>
+        <button class="fbtn" id="newBtn" title="Only roles that were not present on any previous run">New</button>
+        <button class="fbtn" id="ghostBtn" title="Only roles flagged as possible ghost jobs — open unusually long, or repeatedly relisted">Ghosts</button>
+        <button class="fbtn" id="clrBtn" title="Clear the search and every active filter">Reset</button>
       </div>
       <div class="lhead">
-        <span data-sort="score" class="sorted">Score</span>
+        <span data-sort="score" class="sorted" title="__SCORETIP__">Score</span>
         <span data-sort="title">Role</span>
         <span data-sort="company">Company</span>
         <span data-sort="location">Location</span>
@@ -429,6 +461,7 @@ def build(date=None, do_open=True):
           .replace("__BOARD_STAGES__", json.dumps(BOARD_STAGES))
           .replace("__CLOSED_STAGES__", json.dumps(CLOSED_STAGES))
           .replace("__FACET_DEFS__", json.dumps(FACETS))
+          .replace("__FACET_META__", json.dumps(facet_meta(jobs)))
           .replace("__PRIMARY_FACETS__", json.dumps(PRIMARY_FACETS))
           .replace("__STALE_BUCKETS__", json.dumps(list(STALE_BUCKETS)))
           .replace("__APPS__", json.dumps(apps)))
@@ -436,7 +469,9 @@ def build(date=None, do_open=True):
     ghosts = sum(1 for j in jobs if j["_ghost"])
     page = (PAGE
             .replace("__CSS__", CSS)
-            .replace("__FILTERS__", build_filters(jobs))
+            .replace("__FILTERS__", build_filters())
+            .replace("__SCORETIP__", esc(SCORE_TIP))
+            .replace("__MERGED__", str(merged))
             .replace("__ROWS__", "\n".join(row(j) for j in jobs))
             .replace("__COLUMNS__", build_columns())
             .replace("__CLOSED__", build_closed())

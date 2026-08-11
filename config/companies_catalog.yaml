@@ -184,6 +184,27 @@ smartrecruiters:
 
 recruitee: []
 
+# Workday tenants. Slug format is "tenant:wdN:site" — all three parts come from
+# the careers URL, e.g. https://capitalone.wd12.myworkdayjobs.com/Capital_One
+# becomes capitalone:wd12:Capital_One. These are where the enterprise/MSSP/
+# finance/insurance SOC-analyst roles live; the startup boards above skew
+# senior and carry almost no entry-level security work.
+#
+# The list endpoint has no descriptions, so these are hydrated after the title
+# gate (see fetch.hydrate_descriptions). `limit` is capped at 20 server-side and
+# searchText is fuzzy, so the fetcher pages through and we filter ourselves.
+# Verified live 2026-08-11.
+workday:
+  - capitalone:wd12:Capital_One
+  - travelers:wd5:External
+  - truist:wd1:Careers
+  - rackspace:wd1:External
+  - salesforce:wd12:External_Career_Site
+  - nvidia:wd5:NVIDIAExternalCareerSite
+  - workday:wd5:Workday
+  - leidos:wd5:External
+  - gdit:wd5:External_Career_Site
+
 # Probed and confirmed DEAD — no public board on that ATS. Don't re-add these
 # without re-probing; they cost a request and a failed-board row every run.
 #   greenhouse: crowdstrike sentinelone hashicorp gitguardian jumpcloud

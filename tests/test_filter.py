@@ -110,3 +110,28 @@ def test_build_scope_splits_slashed_titles():
         {"titles": ["Offensive Security Engineer / Penetration Tester"]}, TAXONOMY)
     assert "offensive security engineer" in s["titles"]
     assert "penetration tester" in s["titles"]
+
+
+@pytest.mark.parametrize("country,expect", [
+    ("United States of America", True),   # Workday's spelling
+    ("UNITED STATES", True),
+    ("US", True),
+    ("USA", True),
+    ("Canada", False),
+    ("DE", False),                        # explicit short code that isn't US
+])
+def test_country_field_recognition(country, expect):
+    is_us, _, _ = classify_location("Greensboro, NC", country)
+    assert is_us is expect
+
+
+def test_unrecognised_country_defers_to_the_location_text():
+    # Asserting "not US" from a country string we cannot read is how every US
+    # Workday posting got dropped; an unknown name must fall through instead.
+    is_us, _, states = classify_location("Charlotte, NC", "Freedonia")
+    assert is_us is True and states == ["NC"]
+
+
+def test_unrecognised_country_with_foreign_city_is_still_non_us():
+    is_us, _, _ = classify_location("Berlin", "Freedonia")
+    assert is_us is False
