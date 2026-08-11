@@ -83,6 +83,25 @@ python scripts/build_dashboard.py 2026-08-10   # a specific date
 python scripts/build_dashboard.py --no-open
 ```
 
+## One-click desktop shortcut (Windows)
+
+Prefer a taskbar button over typing? Install a shortcut that runs a fresh hunt
+and opens the dashboard:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File launcher\install-shortcut.ps1
+```
+
+That drops **Job Scope** on your Desktop and in the Start Menu. Right-click it →
+*Show more options* → **Pin to taskbar** (or just drag it onto the taskbar).
+
+Clicking it opens a small console showing fetch progress (~20s), then launches
+the dashboard in your browser and closes itself. If the run fails, the window
+stays open with the error.
+
+The icon is generated, not hand-drawn — regenerate it with
+`python launcher/make_icon.py`.
+
 ## The dashboard
 
 Every run writes `runs/<DATE>/index.html` and opens it. Zero dependencies —
@@ -182,6 +201,11 @@ job-hunt/
     score.py                0-100 relevance, freshness + seniority + YOE
     job_hunt.py             orchestrator (run this)
     build_dashboard.py      build + open the web app
+  launcher/
+    make_icon.py            renders jobscope.ico
+    jobscope.ico            taskbar icon
+    run-jobscope.bat        hunt + build + open, with progress
+    install-shortcut.ps1    creates the Desktop/Start Menu shortcut
   tests/                    pytest suite
   runs/<DATE>/_run.json     grouped results
   runs/<DATE>/index.html    the dashboard
