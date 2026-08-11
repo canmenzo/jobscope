@@ -114,8 +114,10 @@ vanilla JS in a single self-contained file, two tabs.
 A dense **list** on the left and a drag-and-drop **kanban** on the right.
 
 - **List** — one row per role: score, title, company, location, age, salary.
-  Sort by any column. Roles you're tracking carry a stage dot and sit slightly
-  lifted. Hover a row for **↗ open posting** and **+ move to Applied**.
+  Sort by any column. Hover a row for **↗ open posting** and **+ move to
+  Applied**. The list is your triage queue, so a role **leaves it** the moment
+  you move it onto the board; pick its stage in the **Stage** filter to see it
+  again.
 - **Kanban** — Applied · Screening · Interview · Offer. **Drag a row from the
   list onto a column** to start tracking it, drag cards between columns as
   things progress, and drag one **back onto the list** to untrack it. Every
