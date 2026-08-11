@@ -321,10 +321,6 @@ button{font-family:inherit}
 .foot{flex-shrink:0;display:flex;align-items:center;gap:8px;height:26px;padding:0 16px;
       font-size:10.5px;color:var(--ink-4);background:var(--pane);
       border-top:1px solid var(--edge)}
-.foot .sep{opacity:.4}
-/* Not .right — that class is the board pane and carries flex:1, which
-   would stretch this span instead of pushing it over. */
-.foot .fend{margin-left:auto}
 .foot b{font-family:var(--num);color:var(--ink-3);font-weight:400}
 
 .tip{position:fixed;z-index:90;max-width:330px;padding:9px 12px;font-size:12px;line-height:1.55;
