@@ -302,6 +302,9 @@ button{font-family:inherit}
          border:1px solid var(--edge);padding:14px 16px;display:flex;flex-direction:column}
 .flowbox h2{margin:0 0 2px;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;
             color:var(--ink-3);font-weight:700}
+.flowhead{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px}
+.flowhead .tbtn{padding:5px 11px;font-size:11.5px}
+.flowhead .acts{margin-left:auto;display:flex;gap:6px}
 .flowbox .sub{font-size:11px;color:var(--ink-4);margin-bottom:8px}
 #sankey{width:100%;flex:1;display:block}
 .sk-lab,.sk-val{paint-order:stroke fill;stroke:var(--panel);stroke-width:3.5px;stroke-linejoin:round}
@@ -435,7 +438,7 @@ const STALE_BUCKETS = __STALE_BUCKETS__;
 const LSKEY = 'jobscope.apps', VIEWKEY = 'jobscope.view';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
-const rows = $$('.row');
+const rows = $$('.row'), rows_ = rows;
 const q = $('#q'), rowsEl = $('#rows'), tip = $('#tip');
 
 let APPS = Object.assign({}, __APPS__, JSON.parse(localStorage.getItem(LSKEY) || '{}'));
@@ -970,6 +973,71 @@ document.addEventListener('mouseout', e => {
   fbox.classList.remove('dim');
   tip.classList.add('hidden');
 });
+
+/* ------------------------------------------------------------------- csv */
+
+// A real .xlsx would mean writing a zip container and OOXML by hand, which is
+// not worth the weight in a page that must stay self-contained. A UTF-8 CSV
+// with a BOM and CRLF line ends is what Excel actually wants: double-clicking
+// it opens with encoding and columns intact.
+// NB: this block avoids backslash escapes on purpose. The JS in this file
+// lives inside a plain (non-raw) Python string, so Python consumes tab,
+// carriage-return and unicode escapes before the browser ever sees them, and a
+// literal CR inside a JS string literal is a syntax error that takes the whole
+// page down. Building the control characters by code point sidesteps it.
+const TAB = String.fromCharCode(9), CR = String.fromCharCode(13);
+const CRLF = String.fromCharCode(13, 10), BOM = String.fromCharCode(65279);
+// Excel executes a cell that opens with any of these. Titles come from job
+// boards and notes are typed, so neither is trustworthy input.
+const CSV_RISKY = ['=', '+', '-', '@', TAB, CR];
+
+function csvCell(v) {
+  let s = v === null || v === undefined ? '' : String(v);
+  if (CSV_RISKY.indexOf(s.charAt(0)) !== -1) s = "'" + s;
+  return '"' + s.split('"').join('""') + '"';
+}
+
+function downloadCSV(name, header, rows) {
+  if (!rows.length) { toast('Nothing to export yet', null); return; }
+  const body = [header].concat(rows).map(r => r.map(csvCell).join(',')).join(CRLF);
+  const blob = new Blob([BOM + body], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Exported ' + rows.length + ' row' + (rows.length === 1 ? '' : 's'), null);
+}
+
+function exportPipeline() {
+  const rows = Object.keys(APPS).filter(id => JOBS[id] && stage(id) !== 'none').map(id => {
+    const j = JOBS[id], e = APPS[id], h = e.history || [];
+    return [j.comp, j.title, label(stage(id)), e.applied_date || '',
+            h.length ? h[0].date : '', h.length ? h[h.length - 1].date : '',
+            h.map(x => label(x.stage)).join(' > '),
+            j.score, j.salary, j.region, j.age,
+            (e.note || '').split(String.fromCharCode(10)).join(' '), j.url];
+  });
+  downloadCSV('jobscope-pipeline',
+    ['Company', 'Role', 'Stage', 'Applied', 'First moved', 'Last moved', 'Path',
+     'Score', 'Salary', 'Location', 'Posted', 'Note', 'URL'], rows);
+}
+
+function exportVisible() {
+  const rows = rows_.filter(r => !r.classList.contains('hidden')).map(r => {
+    const j = JOBS[r.dataset.id] || {};
+    return [j.comp, j.title, r.dataset.score, label(stage(r.dataset.id)),
+            j.region, j.age, j.salary, r.dataset.level === 'none' ? '' : r.dataset.level,
+            r.dataset.yoe === 'na' ? '' : r.dataset.yoe,
+            r.dataset.spon || '', r.dataset.ghost === '1' ? 'yes' : '', j.url];
+  });
+  downloadCSV('jobscope-roles',
+    ['Company', 'Role', 'Score', 'Stage', 'Location', 'Posted', 'Salary', 'Level',
+     'Experience', 'Sponsorship', 'Possible ghost', 'URL'], rows);
+}
+
+$('#csvPipe').addEventListener('click', exportPipeline);
+$('#csvAll').addEventListener('click', exportVisible);
 
 /* ----------------------------------------------------------------- views */
 
