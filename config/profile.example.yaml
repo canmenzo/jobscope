@@ -1,0 +1,41 @@
+# Who you are — the half of the score that judges whether a posting is
+# reachable, not just relevant. Written during setup (Claude reads your resume
+# and asks a few follow-ups) to config/profile.yaml, which is git-ignored.
+#
+# Delete config/profile.yaml to fall back to pure relevance scoring.
+
+years_experience: 3          # total professional years in this field
+
+# Levels you actually want to be considered for. A posting one step above these
+# is scored as a stretch; two steps above is scored as a different job.
+# Ladder: intern entry junior associate mid senior lead staff principal
+#         manager director vp head
+target_levels: [entry, junior, associate, mid]
+
+# Your toolkit. Matched case-insensitively on word boundaries against the job
+# title + description, so keep them as they appear in postings.
+skills:
+  - splunk
+  - microsoft sentinel
+  - kql
+  - crowdstrike
+  - edr
+  - siem
+  - incident response
+  - mitre att&ck
+  - python
+  - powershell
+  - wireshark
+  - phishing analysis
+
+certifications:
+  - security+
+  - az-500
+
+# Base salary you are actually targeting, in USD. A posting whose listed floor
+# sits far above this is a hint the role is pitched above you even when the
+# title is coy. Set 0 to ignore pay entirely.
+salary_target: 100000
+
+stretch_ok: true             # keep REACH roles visible (they are never hidden,
+                             # only ranked below reachable ones)

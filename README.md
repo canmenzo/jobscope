@@ -5,11 +5,13 @@
 A Claude Code skill that runs a **USA-only, tech-only** job search end to end:
 
 1. Pulls live postings from **legal, official ATS JSON APIs** — Greenhouse,
-   Lever, Ashby, SmartRecruiters, Recruitee. (No LinkedIn/Indeed scraping.)
+   Lever, Ashby, SmartRecruiters, Recruitee and Workday. (No LinkedIn/Indeed
+   scraping.)
 2. Filters to USA tech roles in your chosen sub-sectors/titles (drops non-US,
    non-tech, and clearance-required roles).
-3. Scores each role 0-100 for relevance, decaying stale postings and roles that
-   demand far more experience than you have.
+3. Scores each role 0-100 on **how good it is for you** — blending relevance
+   (does it match what you're searching for) with fit (could you realistically
+   get it), and decaying stale postings.
 4. Renders a browsable HTML web app: a dense sortable list, a drag-and-drop
    pipeline board, and a Sankey of how your applications actually flow.
 
@@ -151,9 +153,8 @@ Accepted**, with **Rejected** and **No response** as exits. Every change is
 timestamped into a per-role history, which is what the Sankey draws.
 
 State lives in browser `localStorage`, so it survives rebuilds and carries
-across runs. The **⇩** button exports the whole set as `applications.json`;
-drop that file in the repo root and every future dashboard is seeded from it
-(useful for backup, or for moving to another machine/browser).
+across runs. A dashboard built later is seeded from `applications.json` in the
+skill root if that file exists.
 
 ## Ghost-job detection
 
@@ -172,9 +173,12 @@ filters to them so you can decide whether they're worth your time.
 Separately, the same role opened once per city is **merged into one row** with a
 "N LOC" tag, so a company posting to five metros stops flooding the list.
 
-## Relevance score (0-100)
+## The score (0-100)
 
-Base score — how well the posting matches what you asked to search for:
+One number: **how good this role is for you.** It blends two questions that a
+job board usually conflates.
+
+### Relevance — is this the kind of job you asked for?
 
 | Band | Meaning |
 |---|---|
@@ -192,6 +196,26 @@ Counting more keywords never inflates the score. Then four opt-in penalties:
 - **Seniority** (`downrank_levels`) — −25 for listed levels.
 - **Exclusion** (`exclude_levels`) — scored 0, dropped entirely.
 
+### Fit — could you realistically get it?
+
+Relevance alone recommends jobs you cannot get: a Staff Product Security
+Engineer wanting 8 years scores 95 to a second-year analyst, because the title
+matches. Fit is the missing half, computed from `config/profile.yaml`:
+
+| Component | Weight | What it reads |
+|---|---|---|
+| Experience | 40 | Years the posting asks for vs yours |
+| Seniority | 25 | The title's level vs the levels you target |
+| Skills | 25 | How much of your toolkit the posting actually names |
+| Pay band | 10 | A listed floor far above your target signals a senior role |
+
+The displayed score is a blend, weighted toward fit. **Hover any score** to see
+what pulled that one down ("wants 8+ yrs (you have 3); staff level, a stretch").
+
+Without `config/profile.yaml` fit is off and the score is pure relevance, so the
+tool still works before you onboard. Set it up by asking Claude to read your
+resume — see `config/profile.example.yaml` for the schema.
+
 Default `min_score` is **55**, so you see title matches by default.
 
 ## Add or change companies
@@ -204,6 +228,14 @@ the identifier in that ATS's public URL:
 - Ashby: `jobs.ashbyhq.com/<slug>`
 - SmartRecruiters: `jobs.smartrecruiters.com/<slug>`
 - Recruitee: `<slug>.recruitee.com`
+- Workday: `tenant:wdN:site`, read off the careers URL —
+  `https://capitalone.wd12.myworkdayjobs.com/Capital_One` becomes
+  `capitalone:wd12:Capital_One`
+
+Workday is where the enterprise, finance, insurance and MSSP security roles
+live; the startup boards skew senior and carry almost no entry-level security
+work. Its list endpoint has no descriptions, so those postings are hydrated
+after the title gate — the request count tracks matches, not employer size.
 
 A failing slug never crashes the run. The catalog keeps a commented list of
 slugs already probed and confirmed dead, so they don't get re-added. Companies on
@@ -213,7 +245,7 @@ Workday/iCIMS/Google careers aren't reachable by these public APIs.
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q          # 92 tests: location parsing, the filter gate, scoring,
+pytest -q          # 100 tests: location parsing, the filter gate, scoring,
                    # freshness decay, YOE + salary extraction, ghost/relist
                    # detection, duplicate merging
 ruff check scripts tests
@@ -233,12 +265,15 @@ job-hunt/
   config/
     config.yaml             your choices (written by setup, git-ignored)
     config.example.yaml     schema reference
+    profile.yaml            who you are (git-ignored, drives fit)
+    profile.example.yaml    profile schema reference
     taxonomy.yaml           sub-sectors -> titles -> keywords
     companies_catalog.yaml  companies by ATS source (+ known-dead slugs)
   scripts/
     fetch.py                pull the ATS APIs in parallel (+ per-company status)
     filter.py               USA + selected-sector gate, location classification
-    score.py                0-100 relevance, freshness + seniority + YOE
+    score.py                relevance, freshness + seniority + YOE
+    fit.py                  reachability for YOU, from config/profile.yaml
     job_hunt.py             orchestrator (run this)
     build_dashboard.py      build + open the web app
     dashboard_assets.py     the page's CSS + JS (inlined, no CDN)

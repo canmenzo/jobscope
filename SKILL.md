@@ -47,7 +47,15 @@ onboarding BEFORE searching. You drive this conversationally:
 3. Write `config/config.yaml` (see `config/config.example.yaml` for the schema):
    `country: US`, `sub_sectors: [...]`, `titles: [...]`, `companies: all` (or an
    explicit `[{source, slug}]` list), `min_score: 40`.
-4. Confirm the choices back to the user in one line, then continue to Step 2.
+4. Confirm the choices back to the user in one line.
+5. **Profile (drives the fit half of the score).** Ask for the path to their
+   resume, read it, and extract: total years, current/most recent title, tools
+   and platforms, certifications. Ask 3-4 follow-ups for what a resume cannot
+   say — target levels, base-salary target, remote/hybrid preference. Write
+   `config/profile.yaml` (schema: `config/profile.example.yaml`). If they have
+   no resume handy, collect the same fields with AskUserQuestion. Skipping this
+   is allowed: without the file the score is relevance-only.
+6. Continue to Step 2.
 
 ## Step 2 — run the pipeline
 ```
@@ -93,9 +101,11 @@ how many boards failed. Remind the user the dashboard is open and that he review
 and applies to everything himself.
 
 ## Notes
-- **Sources:** Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee — all free,
-  public, no API key. Adding a company = add its slug under the right source in
-  `config/companies_catalog.yaml`.
+- **Sources:** Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workday —
+  all free, public, no API key. Adding a company = add its slug under the right
+  source in `config/companies_catalog.yaml`. Workday slugs are `tenant:wdN:site`
+  and carry the enterprise/finance/MSSP roles the startup boards lack; their
+  descriptions are hydrated after the title gate.
 - **USA only, tech only** — both are enforced in `filter.py`. Non-US locations
   and non-tech titles are dropped.
 - A failing slug never crashes the run; it's logged and shown in the dashboard's
@@ -104,6 +114,9 @@ and applies to everything himself.
   `freshness` decays stale postings, `max_yoe` downranks roles demanding more
   experience than the user has, `downrank_levels` / `exclude_levels` handle
   seniority. Raise `min_score` to tighten, don't hand-filter.
+- **The score is a blend** of relevance (score.py) and fit (fit.py, driven by
+  `config/profile.yaml`). No profile file = relevance only. Re-run the hunt
+  after editing the profile; rebuilding the dashboard alone will not rescore.
 - **Cross-run signals:** `seen_jobs.json` drives `open_days` (how long we've
   watched a req stay open) and `reposted` (same company+title under a new id).
   Either flags a possible ghost req. Same title at the same company across

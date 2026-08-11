@@ -36,7 +36,18 @@ CSS = """
   --money:#4ade80; --amber:#fbbf24;
   --num:ui-monospace,SFMono-Regular,Consolas,monospace;
   --r:8px; --r-lg:11px;
+  /* One easing for everything that moves, so the whole page feels like one
+     object rather than a pile of independently-animated widgets. */
+  --ease:cubic-bezier(.4,0,.2,1);
+  --spring:cubic-bezier(.34,1.4,.64,1);
 }
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes popIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+@keyframes countPop{0%{transform:scale(1)}40%{transform:scale(1.42);color:var(--neon-ink)}
+                    100%{transform:scale(1)}}
+@keyframes ringPulse{0%{box-shadow:0 0 0 0 #c026d366}70%{box-shadow:0 0 0 12px transparent}
+                     100%{box-shadow:0 0 0 0 transparent}}
+@keyframes shimmer{0%{background-position:-220% 0}100%{background-position:220% 0}}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);
@@ -58,6 +69,8 @@ button{font-family:inherit}
        color:var(--neon-ink);text-shadow:0 0 12px #f0abfc99,0 0 32px #c026d355}
 .kpi{display:flex;gap:13px;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
 .kpi b{font-family:var(--num);color:var(--ink);font-size:13px}
+.kpi span[title]{cursor:help;border-bottom:1px dotted var(--edge-2)}
+.lhead span[title]{cursor:help}
 .kpi .warn b{color:var(--amber)}
 .tabs{display:flex;gap:3px;padding:3px;background:var(--field);border:1px solid var(--edge-2);
       border-radius:var(--r)}
@@ -74,6 +87,11 @@ button{font-family:inherit}
 .main{flex:1;display:flex;min-height:0}
 
 /* ------------------------------------------------------------- left list */
+/* The list claims the room that collapsed stages give up — that is the point
+   of collapsing them. Width steps with how many stages are empty. */
+.listpane.w1{width:59%}
+.listpane.w2{width:65%}
+.listpane.w3{width:71%}
 .listpane{width:53%;min-width:420px;display:flex;flex-direction:column;min-height:0;
           background:var(--pane);border-right:1px solid var(--edge);transition:width .3s}
 .listpane.dropping{box-shadow:inset 0 0 0 1px var(--neon),inset 0 0 40px #c026d31f}
@@ -164,10 +182,27 @@ button{font-family:inherit}
 /* ----------------------------------------------------------- right board */
 .right{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--bg)}
 .board{flex:1;display:flex;flex-direction:column;min-height:0;padding:11px 13px;gap:9px}
-.cols{flex:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;min-height:0}
-.col{display:flex;flex-direction:column;min-height:0;border-radius:var(--r-lg);background:var(--panel);
-     border:1px solid var(--edge);transition:.2s;position:relative}
+.cols{flex:1;display:flex;gap:9px;min-height:0}
+.col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;min-height:0;
+     border-radius:var(--r-lg);background:var(--panel);border:1px solid var(--edge);
+     transition:flex-basis .28s cubic-bezier(.4,0,.2,1),flex-grow .28s,border-color .2s,background .2s;
+     position:relative}
 .col.over{border-color:var(--neon);background:#140828;box-shadow:0 0 0 1px var(--neon),0 0 30px #c026d344}
+/* An empty stage collapses to a vertical rail so the list gets the room; it
+   springs open when a card is dragged over it, and stays open once filled. */
+.col.rail{flex:0 0 34px;cursor:pointer}
+.col.rail .cb,.col.rail .ch .cn,.col.rail .ch .sw{display:none}
+.col.rail .ch{writing-mode:vertical-rl;transform:rotate(180deg);height:100%;justify-content:flex-end;
+              padding:10px 8px;border:0;gap:9px;letter-spacing:1.6px}
+.col.rail .ch::after{content:'\\25B8';transform:rotate(90deg);opacity:.45;font-size:11px}
+.col.rail:hover{border-color:var(--edge-2)}
+.col.rail:hover .ch{color:var(--ink-2)}
+.col.rail.over{flex:1 1 0}
+.col.rail.over .cb{display:flex}
+.col.rail.over .ch{writing-mode:horizontal-tb;transform:none;height:auto;
+                   border-bottom:1px solid var(--edge-faint);letter-spacing:1.2px}
+.col.rail.over .ch::after{display:none}
+.col.rail.over .ch .cn,.col.rail.over .ch .sw{display:block}
 .ch{display:flex;align-items:center;gap:6px;padding:9px 10px;flex-shrink:0;font-size:9px;
     letter-spacing:1.2px;text-transform:uppercase;font-weight:700;color:var(--ink-3);
     border-bottom:1px solid var(--edge-faint)}
@@ -213,7 +248,8 @@ button{font-family:inherit}
 .cl.over{border-color:var(--neon);background:#2a0733;box-shadow:0 0 18px #c026d366}
 .cl b{font-family:var(--num);color:var(--ink)}
 .cl .sw{border-radius:50%}
-.hint{margin-left:auto;color:var(--ink-4);font-size:10px}
+.hint{margin-left:auto;color:var(--ink-4);font-size:10px;white-space:nowrap;overflow:hidden}
+.listpane.w2 ~ .right .hint,.listpane.w3 ~ .right .hint{display:none}
 
 /* ------------------------------------------------------------- flow view */
 .flow{flex:1;display:flex;flex-direction:column;min-height:0;padding:16px 22px 20px;gap:14px;
@@ -253,6 +289,85 @@ button{font-family:inherit}
 .toast button{background:0;border:0;color:var(--cyan-ink);font-size:12px;cursor:pointer;font-weight:700}
 .empty-list{padding:40px 20px;text-align:center;color:var(--ink-4);font-size:12.5px}
 
+/* ---------------------------------------------------------------- polish */
+/* Everything below is motion and depth only — no layout depends on it, and
+   the reduced-motion block at the end switches all of it off. */
+
+.app{animation:fadeUp .34s var(--ease) both}
+
+/* Buttons: lift + bloom on hover, real press on click. */
+.fbtn,.tab,.cl,.iact{position:relative;will-change:transform}
+.fbtn{transition:transform .16s var(--spring),border-color .18s,color .18s,
+      background .18s,box-shadow .18s}
+.fbtn:hover{transform:translateY(-1px);box-shadow:0 4px 14px #c026d326}
+.fbtn:active{transform:translateY(1px) scale(.98);transition-duration:.06s}
+.fbtn.on{animation:ringPulse .5s var(--ease)}
+.fbtn .n{transition:transform .18s var(--spring)}
+.fbtn:hover .n{transform:scale(1.1)}
+.tab{transition:color .18s,background .24s var(--ease),box-shadow .24s}
+.tab:active{transform:scale(.97)}
+.iact{transition:transform .16s var(--spring),border-color .16s,color .16s,box-shadow .16s}
+.iact:hover{transform:translateY(-1px) scale(1.06)}
+.iact:active{transform:scale(.92);transition-duration:.06s}
+.cl{transition:transform .16s var(--spring),border-color .18s,box-shadow .18s,background .18s}
+.cl:hover{transform:translateY(-1px)}
+
+/* Rows fade in on first paint, staggered by index (set in JS). */
+.row{animation:fadeUp .3s var(--ease) both;animation-delay:var(--d,0ms)}
+.row .sc{transition:transform .16s var(--spring),box-shadow .18s}
+.row:hover .sc{transform:scale(1.07);box-shadow:0 0 14px #67e8f947}
+.row:active{cursor:grabbing}
+.row.dragging{transform:scale(.99) rotate(-.4deg)}
+
+/* Kanban: the column you are about to drop on breathes. */
+.col{will-change:flex-basis}
+.col.over{animation:ringPulse .6s var(--ease) infinite}
+.col.over .cb{transform:scale(1.005)}
+.cb{transition:transform .2s var(--ease)}
+.kc{will-change:transform}
+.kc:active{cursor:grabbing;transform:scale(.985) rotate(-.5deg)}
+.kc.dragging{transform:scale(.97) rotate(-1.2deg)}
+.ch .cn{display:inline-block}
+.ch .cn.bump{animation:countPop .42s var(--spring)}
+.cl b.bump{display:inline-block;animation:countPop .42s var(--spring)}
+.slot{transition:border-color .2s,color .2s,background .2s}
+.col.over .slot{border-color:var(--neon);color:var(--neon-ink);background:#1a0b2e}
+
+/* Tabs crossfade their panes instead of hard-swapping. */
+#viewBoard,#viewFlow{animation:fadeUp .26s var(--ease) both}
+.listpane{transition:opacity .22s var(--ease),width .3s var(--ease)}
+
+/* Flow view */
+.fstat{animation:fadeUp .34s var(--ease) both;animation-delay:var(--d,0ms);
+       transition:transform .18s var(--spring),border-color .18s,box-shadow .18s}
+.fstat:hover{transform:translateY(-2px);border-color:var(--edge-2);
+             box-shadow:0 8px 22px #0009,0 0 18px #c026d31f}
+.fstat::after{content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+  background:linear-gradient(100deg,transparent 40%,#f0abfc14 50%,transparent 60%);
+  background-size:220% 100%;animation:shimmer 5.5s linear infinite}
+.sk-node,.sk-flow{transition:opacity .16s,filter .16s}
+
+/* Toast slides up from the edge. */
+.toast{animation:toastIn .28s var(--spring) both}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,16px) scale(.96)}
+                   to{opacity:1;transform:translate(-50%,0) scale(1)}}
+.toast button{transition:transform .14s var(--spring),text-shadow .18s}
+.toast button:hover{transform:scale(1.08);text-shadow:0 0 10px currentColor}
+
+/* Menus grow from their button rather than appearing. */
+.fddmenu{transform-origin:top left;animation:menuIn .18s var(--spring) both}
+.fddmenu.right{transform-origin:top right}
+@keyframes menuIn{from{opacity:0;transform:translateY(-6px) scale(.97)}
+                  to{opacity:1;transform:none}}
+.fddopt{transition:background .13s,color .13s,padding-left .13s}
+.fddopt:hover{padding-left:10px}
+
+.rows{scroll-behavior:smooth}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+                       transition-duration:.001ms !important;scroll-behavior:auto !important}
+}
 @media(max-width:1180px){
   .listpane{width:46%;min-width:360px}
   .cols{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -266,6 +381,7 @@ const STAGES = __STAGES__;
 const BOARD_STAGES = __BOARD_STAGES__;
 const CLOSED_STAGES = __CLOSED_STAGES__;
 const FACET_DEFS = __FACET_DEFS__;
+const FACET_META = __FACET_META__;   // {field: {order:[], labels:{}}}
 const PRIMARY_FACETS = __PRIMARY_FACETS__;
 const STALE_BUCKETS = __STALE_BUCKETS__;
 
@@ -326,10 +442,12 @@ function toast(msg, undo) {
   const t = document.createElement('div');
   t.className = 'toast'; t.id = 'toast';
   t.innerHTML = `<span>${msg}</span>`;
-  const b = document.createElement('button');
-  b.textContent = 'Undo';
-  b.onclick = () => { undo(); t.remove(); };
-  t.appendChild(b);
+  if (undo) {
+    const b = document.createElement('button');
+    b.textContent = 'Undo';
+    b.onclick = () => { undo(); t.remove(); };
+    t.appendChild(b);
+  }
   document.body.appendChild(t);
   toastTimer = setTimeout(() => t.remove(), 4200);
 }
@@ -364,9 +482,11 @@ function optionsFor(field) {
     vals(r, field).forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
   });
   facets[field].forEach(v => { if (!counts.has(v)) counts.set(v, 0); });
-  const dd = document.querySelector(`[data-facet="${field}"]`);
-  const order = JSON.parse(dd.dataset.order || '[]');
-  const labels = JSON.parse(dd.dataset.labels || '{}');
+  // Metadata comes from one global table, NOT from a [data-facet] element:
+  // the facets inside "More" have no element of their own, and looking them
+  // up in the DOM returned null and threw, silently emptying that whole menu.
+  const m = FACET_META[field] || {};
+  const order = m.order || [], labels = m.labels || {};
   return [...counts.keys()].sort((a, b) => {
     const ia = order.indexOf(a), ib = order.indexOf(b);
     if (ia !== -1 || ib !== -1) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
@@ -460,6 +580,18 @@ function sortRows() {
 
 /* ---------------------------------------------------------------- kanban */
 
+// Write a number and, if it actually changed, flash it so the eye follows the
+// card that just moved instead of hunting for which column ticked.
+function bump(el, value) {
+  if (!el) return;
+  const next = String(value);
+  if (el.textContent === next) return;
+  el.textContent = next;
+  el.classList.remove('bump');
+  void el.offsetWidth;              // restart the animation
+  el.classList.add('bump');
+}
+
 function kcard(id) {
   const j = JOBS[id], e = APPS[id] || {};
   const note = (e.note || '').trim();
@@ -487,11 +619,18 @@ function renderBoard() {
         box.appendChild(c);
       });
     }
-    document.getElementById('cn-' + k).textContent = ids.length;
+    bump(document.getElementById('cn-' + k), ids.length);
+    // Applied always stays open — it is the drop target you reach for first.
+    document.getElementById('dz-' + k).classList.toggle(
+      'rail', ids.length === 0 && k !== BOARD_STAGES[0]);
   });
+  const railed = BOARD_STAGES.filter(
+    k => document.getElementById('dz-' + k).classList.contains('rail')).length;
+  const lp = document.getElementById('listpane');
+  [1, 2, 3].forEach(n => lp.classList.toggle('w' + n, railed === n));
   CLOSED_STAGES.forEach(k => {
-    document.getElementById('cn-' + k).textContent =
-      Object.keys(APPS).filter(id => JOBS[id] && stage(id) === k).length;
+    bump(document.getElementById('cn-' + k),
+         Object.keys(APPS).filter(id => JOBS[id] && stage(id) === k).length);
   });
 }
 
@@ -619,7 +758,7 @@ function drawSankey() {
     const v = reached[k] || 0;
     const base = i === 0 ? applied : (reached[track[i - 1]] || 0);
     const rate = i === 0 || !base ? '' : Math.round(v / base * 100) + '% of ' + label(track[i - 1]);
-    return `<div class="fstat" style="--bar:var(${cvar(k)})"><div class="fv">${v}</div>`
+    return `<div class="fstat" style="--bar:var(${cvar(k)});--d:${i * 55}ms"><div class="fv">${v}</div>`
       + `<div class="fl">${label(k)}</div><div class="fr">${rate || '&nbsp;'}</div></div>`;
   }).join('');
 
@@ -718,12 +857,16 @@ $$('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.view
 
 /* ---------------------------------------------------------------- render */
 
+let staggered = false;
 function render() {
   let n = 0;
   rows.forEach(r => {
     const show = passes(r, null);
     r.classList.toggle('hidden', !show);
-    if (show) n++;
+    if (show) {
+      if (!staggered && n < 26) r.style.setProperty('--d', (n * 16) + 'ms');
+      n++;
+    }
     const st = stage(r.dataset.id);
     r.classList.toggle('tracked', st !== 'none');
     const dot = r.querySelector('.stagedot');
@@ -736,6 +879,7 @@ function render() {
       if (!dot) r.querySelector('.rt').appendChild(d);
     }
   });
+  staggered = true;
   $('#shown').textContent = n;
   $('#emptyList').classList.toggle('hidden', n !== 0);
   const tracked = Object.keys(APPS).filter(id => JOBS[id] && stage(id) !== 'none');
@@ -803,12 +947,6 @@ $('#clrBtn').addEventListener('click', () => {
   newOnly = ghostOnly = false; freshOnly = false;
   ['freshBtn', 'newBtn', 'ghostBtn'].forEach(i => $('#' + i).classList.remove('on'));
   q.value = ''; render();
-});
-$('#expBtn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(APPS, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'applications.json'; a.click();
-  URL.revokeObjectURL(a.href);
 });
 $('.lhead').addEventListener('click', e => {
   const s = e.target.closest('[data-sort]'); if (!s) return;

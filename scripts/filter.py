@@ -122,14 +122,23 @@ def classify_location(loc, country):
         if name in l and abbr not in states:
             states.append(abbr)
 
+    # An explicit country field is the strongest signal, but only when we can
+    # actually read it. Workday reports "United States of America", which an
+    # exact-match list rejected — every US Workday posting was being dropped as
+    # non-US even with its state right there in the location. An unrecognised
+    # country name now asserts nothing and falls through to the text evidence,
+    # rather than silently meaning "not US".
+    is_us = None
     if c:
-        is_us = c in ("US", "USA", "UNITED STATES", "U.S.", "U.S.A.")
-    elif states or _has(l, US_MARKERS):
-        is_us = True
-    elif _NON_US_RE.search(l):
-        is_us = False
-    else:
-        is_us = None
+        if c in ("US", "USA", "U.S.", "U.S.A.") or "UNITED STATES" in c:
+            is_us = True
+        elif len(c) <= 3 or _NON_US_RE.search(c.lower()):
+            is_us = False       # a short country code that isn't US, or a known one
+    if is_us is None:
+        if states or _has(l, US_MARKERS):
+            is_us = True
+        elif _NON_US_RE.search(l):
+            is_us = False
     return is_us, loc_type, states
 
 
