@@ -83,8 +83,10 @@ Writes `runs/<DATE>/index.html` and opens it. Two tabs:
 age, salary; NEW / GHOST / N-LOC tags; hover for open-posting and move-to-
 Applied buttons) and a drag-and-drop KANBAN on the right (Applied · Screening ·
 Interview · Offer) plus a closed strip (Accepted · Rejected · No response).
-Dragging a row onto a column tracks it; dragging a card back to the list
-untracks it; every move raises an Undo toast. Click a card for an inline note.
+Dragging a row onto a column tracks it and REMOVES it from the list (the list
+is the triage queue); selecting that stage in the Stage filter brings it back.
+Dragging a card back to the list untracks it. Every move raises an Undo toast,
+and moving backwards trims the stages you undid. Click a card for a note.
 
 **Flow** — a conversion strip plus a full-width Sankey of how roles moved
 between stages, with drop-offs branching where they happened.

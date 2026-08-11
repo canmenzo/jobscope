@@ -475,6 +475,13 @@ function vals(row, f) {
 }
 
 function passes(row, skip) {
+  // The list is the queue of roles still to triage, so anything you have moved
+  // onto the board leaves it. Selecting its stage in the Stage filter brings it
+  // back — that is the one way to see what you have already applied to.
+  if (skip !== 'status') {
+    const st = stage(row.dataset.id);
+    if (st !== 'none' && !facets.status.has(st)) return false;
+  }
   const term = q.value.trim().toLowerCase();
   if (term && !row.dataset.search.includes(term)) return false;
   if (newOnly && row.dataset.new !== '1') return false;

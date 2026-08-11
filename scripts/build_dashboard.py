@@ -286,7 +286,7 @@ def dropdown(btn_label, fields, tip, align=""):
 
 
 FACET_TIPS = {
-    "status": "Where each role sits in your pipeline",
+    "status": "Where each role sits in your pipeline. Tracked roles leave the list once you move them onto the board — pick a stage here to bring them back.",
     "type": "Remote, hybrid or on-site",
     "cat": "Role family, derived from the job title",
 }
