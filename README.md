@@ -1,16 +1,22 @@
 # job-hunt
 
+[![CI](https://github.com/canmenzo/jobscope/actions/workflows/ci.yml/badge.svg)](https://github.com/canmenzo/jobscope/actions/workflows/ci.yml)
+
 A Claude Code skill that runs a **USA-only, tech-only** job search end to end:
 
 1. Pulls live postings from **legal, official ATS JSON APIs** — Greenhouse,
    Lever, Ashby, SmartRecruiters, Recruitee. (No LinkedIn/Indeed scraping.)
 2. Filters to USA tech roles in your chosen sub-sectors/titles (drops non-US,
    non-tech, and clearance-required roles).
-3. Scores each role 0-100 for relevance to what you asked to search for.
-4. Groups roles by company and renders a browsable HTML web app.
+3. Scores each role 0-100 for relevance, decaying stale postings and roles that
+   demand far more experience than you have.
+4. Renders a browsable HTML web app with faceted filtering and application
+   tracking.
 
 > **You review and apply to everything yourself. This skill never auto-applies,
 > and it does not write resumes or cover letters.**
+
+![The dashboard](docs/dashboard.png)
 
 ## Invoke it
 
@@ -46,16 +52,22 @@ Restart Claude Code so it picks up the skill, then say **"run my job hunt"**.
 First run walks you through setup; your answers are saved to `config/config.yaml`
 (git-ignored, never shared).
 
-## Setup (what onboarding asks)
+## How it works
 
-- **Sub-sectors** (tech only): Cybersecurity, Software Engineering, Data/ML/AI,
-  DevOps/SRE/Cloud, IT/Systems, Product/Design, QA/Test.
-- **Target titles**: pick from the titles under your sub-sectors, or add your own.
-- **Companies**: search all catalog companies (default) or a chosen subset.
+```mermaid
+flowchart LR
+  A[config.yaml<br/>taxonomy.yaml<br/>companies_catalog.yaml] --> B
+  B[fetch.py<br/>5 ATS APIs, 10 threads] --> C
+  C[filter.py<br/>USA · tech · no-clearance gate] --> D
+  D[score.py<br/>relevance + decay] --> E
+  E[job_hunt.py<br/>group by company] --> F[(runs/DATE/_run.json)]
+  F --> G[build_dashboard.py] --> H[(runs/DATE/index.html)]
+  I[(seen_jobs.json)] -.new-vs-seen.-> E
+  J[(applications.json)] -.pipeline state.-> G
+```
 
-Your answers are written to `config/config.yaml`
-(see `config/config.example.yaml`). The title/keyword taxonomy lives in
-`config/taxonomy.yaml`; the company list in `config/companies_catalog.yaml`.
+Each company is fetched in its own thread with its own try/except, so one dead
+board never kills a run — a full ~150-company sweep takes about 20 seconds.
 
 ## Run manually
 
@@ -67,29 +79,62 @@ python scripts/job_hunt.py --min-score 70  # raise the relevance bar
 python scripts/job_hunt.py --new-only      # only roles unseen on prior runs
 
 python scripts/build_dashboard.py          # build + open the web app
-python scripts/build_dashboard.py 2026-06-24   # a specific date
+python scripts/build_dashboard.py 2026-08-10   # a specific date
+python scripts/build_dashboard.py --no-open
 ```
 
-## The dashboard (how you review results)
+## The dashboard
 
-Every run writes `runs/<DATE>/index.html` and opens it. It shows:
+Every run writes `runs/<DATE>/index.html` and opens it. Zero dependencies —
+vanilla JS in a single self-contained file.
 
-- a stats header — roles, new, companies with matches, searched OK, failed;
-- **each company as a collapsible branch**, its roles underneath with a relevance
-  score badge, an **Apply** link, a **NEW** badge, and matched-keyword chips;
-- a live **search box** and a **New only** toggle;
-- companies that searched OK but matched nothing (collapsed list);
-- **failed boards at the bottom**, each with the failure reason and a direct
-  **careers-page link** so dead slugs are easy to spot and prune.
+- **Stats header** — roles, new, companies, in-pipeline, non-US hidden, failed
+  boards. All counts update live as you filter. Click **companies** for a
+  multi-select company panel.
+- **Facet bar** — Status, Type, Category, Level, Experience, Posted, Salary,
+  State, Source. Multi-select within a group is OR, across groups is AND.
+- **Role cards** — relevance score, remote/hybrid/on-site pill, company, region,
+  posting age, extracted salary range, required-years chip, matched keywords,
+  and an **Apply** link.
+- **Fresh only (≤30d)** — on by default. Long-open reqs are usually filled or
+  never existed; this keeps them out of your way without deleting them.
+- Live search, sort (score / new first / company A–Z), and clear-filters.
+- Companies that searched OK but matched nothing, collapsed at the bottom.
+- **Failed boards** at the very bottom with the reason and a careers link, so
+  dead slugs are easy to spot and prune.
+
+## Application tracking
+
+Each card has a status dropdown: **not applied → applied → interviewing →
+rejected**. Applied cards get a green border, interviewing gets amber, rejected
+dims out. Status is a facet, so "show me everything I've applied to" is one click.
+
+State lives in browser `localStorage`, so it survives rebuilds and carries across
+runs. **Export applications** downloads the whole set as `applications.json`;
+drop that file in the repo root and every future dashboard is seeded from it
+(useful for backup, or for moving to another machine/browser).
 
 ## Relevance score (0-100)
 
-- **78-100** — a selected title phrase appears in the job title (strongest).
-- **55-77** — a sub-sector keyword appears in the job title.
-- **38-54** — match only in the description (noisier; below the default cutoff).
+Base score — how well the posting matches what you asked to search for:
 
-Default `min_score` is **55**, so you see title matches by default. Lower it in
-`config/config.yaml` to include description-only matches.
+| Band | Meaning |
+|---|---|
+| **72-100** | A selected title phrase appears in the job title. Scales with *coverage*, so a clean "Detection Engineer" outranks "Staff Distributed Systems Detection Engineer, Platform". |
+| **55-63** | A sub-sector keyword appears in the job title — right area, wrong/unknown title. |
+| **42** | Match only in the description. Below the default cutoff. |
+
+Counting more keywords never inflates the score. Then four opt-in penalties:
+
+- **Freshness** (`freshness: true`) — no penalty for 21 days, then decaying to
+  −22 by 5 months old.
+- **Experience** (`max_yoe: N`) — −5 per year the posting demands above `N`,
+  capped at −20. Years are parsed from the description, taking the *lowest*
+  stated bar so a reachable role is never wrongly buried.
+- **Seniority** (`downrank_levels`) — −25 for listed levels.
+- **Exclusion** (`exclude_levels`) — scored 0, dropped entirely.
+
+Default `min_score` is **55**, so you see title matches by default.
 
 ## Add or change companies
 
@@ -102,9 +147,20 @@ the identifier in that ATS's public URL:
 - SmartRecruiters: `jobs.smartrecruiters.com/<slug>`
 - Recruitee: `<slug>.recruitee.com`
 
-A failing slug never crashes the run — it's listed in the dashboard's failed
-section with a careers link. Companies on Workday/iCIMS/Google careers aren't
-reachable by these public APIs.
+A failing slug never crashes the run. The catalog keeps a commented list of
+slugs already probed and confirmed dead, so they don't get re-added. Companies on
+Workday/iCIMS/Google careers aren't reachable by these public APIs.
+
+## Development
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest -q          # 65 tests: location parsing, the filter gate, scoring,
+                   # freshness decay, YOE + salary extraction
+ruff check scripts tests
+```
+
+CI runs both on every push against Python 3.11, 3.12, and 3.13.
 
 ## Layout
 
@@ -112,19 +168,23 @@ reachable by these public APIs.
 job-hunt/
   SKILL.md                  workflow Claude follows (setup + run)
   README.md                 this file
-  requirements.txt
+  requirements.txt          runtime deps (requests, pyyaml)
+  requirements-dev.txt      pytest, ruff
+  pyproject.toml            pytest + ruff config
   config/
-    config.yaml             your choices (written by setup)
+    config.yaml             your choices (written by setup, git-ignored)
     config.example.yaml     schema reference
     taxonomy.yaml           sub-sectors -> titles -> keywords
-    companies_catalog.yaml  companies by ATS source
+    companies_catalog.yaml  companies by ATS source (+ known-dead slugs)
   scripts/
-    fetch.py                pull the ATS APIs (+ per-company status)
-    filter.py               USA + selected-sector gate
-    score.py                0-100 relevance
+    fetch.py                pull the ATS APIs in parallel (+ per-company status)
+    filter.py               USA + selected-sector gate, location classification
+    score.py                0-100 relevance, freshness + seniority + YOE
     job_hunt.py             orchestrator (run this)
     build_dashboard.py      build + open the web app
+  tests/                    pytest suite
   runs/<DATE>/_run.json     grouped results
   runs/<DATE>/index.html    the dashboard
   seen_jobs.json            new-vs-seen cache across runs
+  applications.json         optional pipeline-state seed (exported from the UI)
 ```

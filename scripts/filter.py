@@ -172,16 +172,21 @@ def build_scope(config, taxonomy):
     return {
         "titles": sorted(titles),
         "keywords": sorted(keywords),
-        "match_terms": sorted(keywords | titles),
+        # Word-boundary matcher, not a substring test: plain `"soc" in blob`
+        # matches "Associate" and "Social", dragging non-tech roles through
+        # the gate on a keyword they don't actually contain.
+        "match_re": _matcher(sorted(keywords | titles)),
         "nontech_drop": [t.lower() for t in taxonomy.get("nontech_drop", [])],
         "downrank_levels": {str(l).lower() for l in config.get("downrank_levels", []) or []},
         "exclude_levels": {str(l).lower() for l in config.get("exclude_levels", []) or []},
+        "freshness": config.get("freshness", True),
+        "max_yoe": int(config.get("max_yoe") or 0),
     }
 
 
 def filter_jobs(jobs, scope):
     kept, dropped = [], []
-    match_terms = scope["match_terms"]
+    match_re = scope["match_re"]
     nontech = scope["nontech_drop"]
     for j in jobs:
         title = (j.get("title") or "").lower()
@@ -201,7 +206,7 @@ def filter_jobs(jobs, scope):
             dropped.append((j, "requires security clearance"))
             continue
 
-        if not _has(blob, match_terms):
+        if not match_re.search(blob):
             dropped.append((j, "off-target (no selected-sector keyword)"))
             continue
 

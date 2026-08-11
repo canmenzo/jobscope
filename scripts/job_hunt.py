@@ -25,9 +25,9 @@ import yaml
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 
-from fetch import fetch_all, board_url      # noqa: E402
-from filter import filter_jobs, build_scope  # noqa: E402
-from score import score_all                  # noqa: E402
+from fetch import board_url, fetch_all  # noqa: E402
+from filter import build_scope, filter_jobs  # noqa: E402
+from score import score_all  # noqa: E402
 
 CONFIG = SKILL_ROOT / "config"
 RUNS = SKILL_ROOT / "runs"
@@ -55,6 +55,25 @@ def extract_salary(desc):
         if 40 <= lo <= hi <= 1500:
             return f"${lo:.0f}K–${hi:.0f}K"
     return ""
+
+
+# "5+ years of experience", "5-7 years ... experience", "minimum 3 years experience".
+# Group 1 is the LOW end, so a range reports the actual bar, not the ceiling.
+_YOE_RE = re.compile(
+    r"(\d{1,2})\s*(?:\+|plus)?\s*(?:(?:-|–|—|to)\s*\d{1,2}\s*\+?)?\s*years?"
+    r"[^.\n]{0,60}?\bexperience\b", re.I)
+
+
+def extract_yoe(desc):
+    """Lowest years-of-experience requirement stated in the description.
+
+    Deliberately the MINIMUM across all mentions: a posting saying "3+ years
+    required, 8+ preferred" has a real bar of 3, and under-reporting keeps
+    reachable roles visible rather than penalizing them.
+    """
+    years = [int(m.group(1)) for m in _YOE_RE.finditer(desc or "")]
+    years = [y for y in years if 0 < y <= 20]
+    return min(years) if years else None
 
 
 def log(msg):
@@ -131,6 +150,7 @@ def main():
 
     companies = resolve_companies(config, catalog, args.pick, args.limit)
     scope = build_scope(config, taxonomy)
+    scope["today"] = dt.date.today()
     seen = load_seen()
 
     log("== job-hunt (USA · tech) ==")
@@ -153,6 +173,8 @@ def main():
         log(f"    - {n:5} {r}")
 
     log("\n[3/4] Scoring relevance...")
+    for j in kept:
+        j["yoe"] = extract_yoe(j.get("description", ""))
     scored = score_all(kept, scope)
     scored = [j for j in scored if j["score"] >= min_score]
     for j in scored:
@@ -180,10 +202,11 @@ def main():
             "postings": st["count"], "match_count": len(roles),
             "jobs": [{
                 "id": j["id"], "title": j["title"], "location": j.get("location", ""),
-                "url": j["url"], "comp": j.get("comp", ""), "score": j["score"],
+                "url": j["url"], "score": j["score"],
                 "tier": j["tier"], "level": j.get("level", ""),
                 "matched": j.get("matched", []), "new": j["new"],
-                "posted": j.get("posted", ""), "salary": j.get("salary", ""),
+                "posted": j.get("posted", ""), "age_days": j.get("age_days"),
+                "salary": j.get("salary", ""), "yoe": j.get("yoe"),
             } for j in roles],
         })
 

@@ -92,12 +92,36 @@ greenhouse:
   - twitch
   - webflow
   - yubico
+  # verified live 2026-08-10
+  - algolia
+  - carta
+  - clickhouse
+  - descope
+  - duolingo
+  - endorlabs
+  - fastly
+  - forter
+  - grafanalabs
+  - honeycomb
+  - launchdarkly
+  - marqeta
+  - pinterest
+  - riskified
+  - roblox
+  - runzero
+  - securityscorecard
+  - squarespace
+  - starburst
+  - tanium
+  - temporaltechnologies
+  - toast
+  - torq
+  - veracode
 
 lever:
   - alloy
   - matchgroup
   - mistral
-  - netflix
   - palantir
   - plaid
   - ro
@@ -139,6 +163,11 @@ ashby:
   - vercel
   - watershed
   - workos
+  # verified live 2026-08-10
+  - opal
+  - oso
+  - persona
+  - warp
 
 # SmartRecruiters + Recruitee fetchers are supported (see fetch.py) but ship
 # empty: few US-tech companies use them with a public board. Add a verified slug
@@ -149,5 +178,26 @@ ashby:
 #     - <slug>   # https://<slug>.recruitee.com must resolve
 smartrecruiters:
   - ServiceNow
+  # verified live 2026-08-10
+  - Experian
+  - Visa
 
 recruitee: []
+
+# Probed and confirmed DEAD — no public board on that ATS. Don't re-add these
+# without re-probing; they cost a request and a failed-board row every run.
+#   greenhouse: crowdstrike sentinelone hashicorp gitguardian jumpcloud
+#     duosecurity cyberark checkmarx contrastsecurity immersivelabs abnormal
+#     netography greynoise huntresslabs swimlane cycode legitsecurity
+#     oligosecurity aikido upguard axoniusinc sysdiginc lacework netskopeinc
+#     salt-security noname traceable stytch clerk teleportcommunity strongdm
+#     twingate sift unit21 alloyai chronosphere redpanda confluent doordash
+#     benchling cloudinary sentry akamai unity wealthfront plaidinc openai
+#     figmadesign
+#   lever: netflix (404 as of 2026-08-10) sentinelone attentive veza cequence
+#     netlify wiz kandji abnormalsecurity
+#   ashby: wiz tailscale arcticwolf teleport anduril scaleai perplexityai
+#     abnormalsecurity clerk corgea pomerium spec truffle nightfall
+#   smartrecruiters: McAfee Bosch Ubisoft Avery
+# Note: SmartRecruiters returns HTTP 200 with 0 postings for a bad slug rather
+# than a 404 — validate those by posting count, not status code.

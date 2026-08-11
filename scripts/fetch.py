@@ -71,6 +71,14 @@ NAME_OVERRIDES = {
     "knowbe4": "KnowBe4",
     "1password": "1Password",
     "servicenow": "ServiceNow",
+    "clickhouse": "ClickHouse",
+    "grafanalabs": "Grafana Labs",
+    "launchdarkly": "LaunchDarkly",
+    "securityscorecard": "SecurityScorecard",
+    "temporaltechnologies": "Temporal",
+    "endorlabs": "Endor Labs",
+    "runzero": "runZero",
+    "oso": "Oso",
 }
 
 _TAG_RE = re.compile(r"<[^>]+>")

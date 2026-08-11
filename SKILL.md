@@ -70,10 +70,16 @@ tracks them across runs.
 python scripts/build_dashboard.py
 ```
 Writes `runs/<DATE>/index.html` and opens it. The web app shows:
-- a stats header (roles, new, companies with matches, searched, failed),
-- **each company as a collapsible branch** with its roles underneath (score
-  badge, Apply link, "NEW" badge, matched-keyword chips),
-- a live search box and a **New only** toggle,
+- a stats header (roles, new, companies, in-pipeline, non-US hidden, failed) —
+  all counts recompute as filters change,
+- a **facet bar** (Status, Type, Category, Level, Experience, Posted, Salary,
+  State, Source); multi-select is OR within a group, AND across groups,
+- a **grid of role cards** — score badge, Apply link, "NEW" badge, salary,
+  posting age, required-years chip, matched-keyword chips,
+- an application **status dropdown** per card (not applied / applied /
+  interviewing / rejected), persisted in localStorage and exportable,
+- a live search box, sort control, **New only**, and **Fresh only (≤30d)**
+  which is ON by default,
 - companies that searched OK but matched nothing (collapsed list),
 - **failed boards at the bottom** with the failure reason and a direct careers
   link, so dead slugs are easy to spot and prune.
@@ -91,4 +97,9 @@ and applies to everything himself.
   and non-tech titles are dropped.
 - A failing slug never crashes the run; it's logged and shown in the dashboard's
   failed section with a careers link.
+- **Scoring penalties** (all config-driven, see `config/config.example.yaml`):
+  `freshness` decays stale postings, `max_yoe` downranks roles demanding more
+  experience than the user has, `downrank_levels` / `exclude_levels` handle
+  seniority. Raise `min_score` to tighten, don't hand-filter.
+- Run `pytest -q` after touching `filter.py`, `score.py`, or the extractors.
 - **No auto-apply, no resume/cover generation, ever.**
