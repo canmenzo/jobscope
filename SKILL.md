@@ -69,26 +69,23 @@ tracks them across runs.
 ```
 python scripts/build_dashboard.py
 ```
-Writes `runs/<DATE>/index.html` and opens it. The web app shows:
-- a stats header (roles, new, companies, in-pipeline, possible ghosts, merged,
-  non-US hidden, failed) — all counts recompute as filters change,
-- a **stage strip** — the 8 funnel stages with live counts, clickable as filters,
-- an **application pipeline Sankey** — flow between stages, with drop-offs
-  branching where they happened; defaults to all applications, toggleable to
-  follow the current filters,
-- a **filter bar** of searchable multi-select dropdowns (Stage, Type, Category,
-  Level, Experience, Posted, Salary, State, Source, Company); OR within a
-  group, AND across groups,
-- a **grid of role cards** — score badge, Apply link, "NEW"/"GHOST?" badges,
-  salary, posting age, required-years chip, location count when merged,
-- per card: a **stage dropdown**, a free-text **note** and an **applied date**,
-  persisted in localStorage and exportable to `applications.json`,
-- a live search box, sort control, **New only**, **Ghosts only**, and
-  **Fresh only (≤30d)** which is ON by default,
-- filters persisted in the URL hash + localStorage (shareable/bookmarkable),
-- companies that searched OK but matched nothing (collapsed list),
-- **failed boards at the bottom** with the failure reason and a direct careers
-  link, so dead slugs are easy to spot and prune.
+Writes `runs/<DATE>/index.html` and opens it. Two tabs:
+
+**Board** — a dense sortable LIST on the left (score, role, company, location,
+age, salary; NEW / GHOST / N-LOC tags; hover for open-posting and move-to-
+Applied buttons) and a drag-and-drop KANBAN on the right (Applied · Screening ·
+Interview · Offer) plus a closed strip (Accepted · Rejected · No response).
+Dragging a row onto a column tracks it; dragging a card back to the list
+untracks it; every move raises an Undo toast. Click a card for an inline note.
+
+**Flow** — a conversion strip plus a full-width Sankey of how roles moved
+between stages, with drop-offs branching where they happened.
+
+Filters are one thin row above the list: search, Fresh ≤30d (ON by default),
+Stage, Type, Category, and More (Level, Experience, Posted, Salary, State,
+Source, Company). All dropdowns are searchable multi-selects; OR within a
+group, AND across groups. Filters and the active tab persist to the URL hash
+and localStorage.
 
 ## Step 4 — present in chat
 Briefly recap: how many roles across how many companies, the top few matches,

@@ -2,373 +2,601 @@
 
 These are inlined verbatim into the generated HTML (no build step, no CDN), so
 they are plain strings rather than f-strings — braces stay unescaped and the JS
-below reads like JS. build_dashboard.py substitutes __TOKEN__ placeholders in
-PAGE only; nothing here is formatted.
+below reads like JS. build_dashboard.py substitutes __TOKEN__ placeholders.
 
-Stage palette (validated with the data-viz six checks against the #161922 panel
-surface, dark mode):
-  * Applied -> Offer is an ORDINAL ramp — one blue hue, monotone lightness,
-    adjacent dL >= 0.06, dim end 2.29:1 on surface. Funnel position is an order,
-    not an identity, so it takes a ramp rather than categorical hues.
-  * Accepted / Rejected are reserved STATUS colors (good #0ca30c 5.23:1,
-    critical #d03b3b 3.65:1). They fail a categorical CVD check against each
-    other by design, which is why every node and legend entry is always drawn
-    with its name and count — color never carries meaning alone here.
-  * Not applied / No response are neutrals, deliberately below the chroma floor
-    so they read as absence rather than as a series.
+Layout: a dense sortable LIST on the left and a drag-and-drop KANBAN on the
+right (Applied / Screening / Interview / Offer, plus a closed strip for
+Accepted / Rejected / No response). A second top-level tab swaps the board for
+the FLOW view — a full-width Sankey of how roles moved between stages.
+
+Two colour systems, deliberately separated:
+  * CHROME is the "neon cyber" skin — magenta edges and glows, near-black
+    surfaces. It never encodes data. Raw magenta #c026d3 is 4.16:1 on the panel
+    and is therefore used only for borders, rings and glows, never body text.
+    Text steps run 16.4:1 / 11.1:1 / 6.5:1 / 4.0:1 so the dense list stays
+    readable despite the dark skin.
+  * DATA keeps the palette validated with the data-viz six checks: Applied ->
+    Offer is an ORDINAL one-hue ramp (monotone lightness, adjacent dL >= 0.06);
+    Accepted / Rejected are reserved STATUS colours, always drawn beside their
+    name and count so hue never carries meaning alone.
 """
 
 CSS = """
-  :root {
-    color-scheme: dark;
-    --bg: #0f1115; --panel: #161922; --panel-2: #12151c; --line: #23262d;
-    --line-2: #2c313c; --ink: #e6e8ec; --ink-2: #cfd3da; --ink-3: #9aa0aa;
-    --ink-4: #6b7280; --accent: #2563eb;
-    --st-none: #606b82; --st-applied: #1e4fa8; --st-screening: #2f6fdd;
-    --st-interview: #4f8ef0; --st-offer: #7fb0f7; --st-accepted: #0ca30c;
-    --st-rejected: #d03b3b; --st-ghosted: #6b7280;
-  }
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0;
-         background: var(--bg); color: var(--ink); }
-  header { padding: 16px 28px 10px; border-bottom: 1px solid var(--line);
-           position: sticky; top: 0; background: #0f1115ee; backdrop-filter: blur(8px); z-index: 30; }
-  h1 { margin: 0 0 8px; font-size: 18px; }
-  .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-          padding: 5px 11px; font-size: 13px; }
-  .stat b { font-size: 15px; }
-  .stat.clickable { cursor: pointer; user-select: none; }
-  .stat.clickable:hover { border-color: #3a4150; }
-  .stat.clickable.open { background: #1d2433; border-color: var(--accent); }
+:root{
+  /* chrome (neon skin) */
+  --bg:#060609; --pane:#08080e; --panel:#0b0b14; --card:#101020; --field:#0c0c16;
+  --edge:#1b1231; --edge-2:#2d1a4d; --edge-faint:#140e26;
+  --neon:#c026d3; --neon-ink:#f0abfc; --cyan:#22d3ee; --cyan-ink:#67e8f9;
+  /* text */
+  --ink:#ece9f7; --ink-2:#c9bde8; --ink-3:#9b8dc4; --ink-4:#77699e;
+  /* data */
+  --st-applied:#1e4fa8; --st-screening:#2f6fdd; --st-interview:#4f8ef0;
+  --st-offer:#7fb0f7; --st-accepted:#0ca30c; --st-rejected:#d03b3b;
+  --st-ghosted:#6b7280; --st-none:#606b82;
+  --money:#4ade80; --amber:#fbbf24;
+  --num:ui-monospace,SFMono-Regular,Consolas,monospace;
+  --r:8px; --r-lg:11px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);
+     color:var(--ink);overflow:hidden;font-size:13px}
+.hidden{display:none !important}
+button{font-family:inherit}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--edge-2);border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:#3d2266}
+::-webkit-scrollbar-track{background:transparent}
 
-  /* --- stage strip ------------------------------------------------------ */
-  .stages { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-  .stg { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
-         background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
-         padding: 6px 11px 6px 9px; font-size: 12px; color: var(--ink-2); }
-  .stg:hover { border-color: #3a4150; }
-  .stg.on { border-color: currentColor; background: #1b1f2a; }
-  .stg .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor;
-              flex-shrink: 0; }
-  .stg .n { font-weight: 700; font-size: 13px; color: var(--ink); }
-  .stg .lbl { color: var(--ink-2); }
+.app{display:flex;flex-direction:column;height:100vh}
 
-  /* --- toolbar ---------------------------------------------------------- */
-  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  #q { flex: 1; min-width: 200px; background: var(--panel); border: 1px solid var(--line-2);
-       color: var(--ink); border-radius: 8px; padding: 9px 12px; font-size: 14px; }
-  .tbtn { background: #1e222b; border: 1px solid var(--line-2); color: var(--ink-2);
-          border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
-  .tbtn:hover { border-color: #3a4150; }
-  .tbtn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-  #shown { color: var(--ink-3); font-size: 13px; margin-left: 2px; }
+/* ---------------------------------------------------------------- top bar */
+.top{display:flex;align-items:center;gap:16px;padding:0 16px;height:50px;flex-shrink:0;
+     background:var(--pane);border-bottom:1px solid var(--edge);position:relative;z-index:40;
+     box-shadow:0 1px 0 #c026d333,0 8px 26px -16px #c026d355}
+.brand{font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;
+       color:var(--neon-ink);text-shadow:0 0 12px #f0abfc99,0 0 32px #c026d355}
+.kpi{display:flex;gap:13px;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.kpi b{font-family:var(--num);color:var(--ink);font-size:13px}
+.kpi .warn b{color:var(--amber)}
+.tabs{display:flex;gap:3px;padding:3px;background:var(--field);border:1px solid var(--edge-2);
+      border-radius:var(--r)}
+.tab{padding:5px 15px;font-size:10.5px;font-weight:700;letter-spacing:1.4px;cursor:pointer;
+     background:none;border:0;color:var(--ink-3);border-radius:5px;transition:.2s}
+.tab:hover{color:var(--ink-2)}
+.tab.on{background:#2a0733;color:var(--neon-ink);box-shadow:0 0 14px #c026d344,inset 0 0 12px #c026d322}
+.live{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:1.2px;
+      color:var(--ink-4);text-transform:uppercase;white-space:nowrap}
+.live .dot{width:6px;height:6px;border-radius:50%;background:#22ff9c;box-shadow:0 0 9px #22ff9c;
+           animation:pulse 2.6s infinite}
+@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
 
-  /* --- dropdown filter bar ---------------------------------------------- */
-  .filterbar { display: flex; flex-wrap: wrap; gap: 7px; padding: 10px 28px;
-               border-bottom: 1px solid var(--line); background: var(--panel-2);
-               position: sticky; top: 0; z-index: 20; }
-  .fdd { position: relative; }
-  .fddbtn { background: var(--panel); border: 1px solid var(--line-2); color: var(--ink-2);
-            border-radius: 8px; padding: 7px 11px; font-size: 12.5px; cursor: pointer;
-            display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .fddbtn:hover { border-color: #3a4150; }
-  .fdd.active .fddbtn { border-color: var(--accent); color: #fff; }
-  .fddbtn .cnt { background: var(--accent); color: #fff; border-radius: 9px; font-size: 10px;
-                 font-weight: 700; padding: 1px 6px; }
-  .fddbtn .car { opacity: .5; font-size: 10px; }
-  .fddmenu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 40; width: 258px;
-             background: #12151c; border: 1px solid var(--line-2); border-radius: 10px;
-             box-shadow: 0 12px 34px #000a; padding: 8px; }
-  .fddsearch { width: 100%; background: var(--panel); border: 1px solid var(--line-2);
-               color: var(--ink); border-radius: 7px; padding: 7px 9px; font-size: 12.5px;
-               margin-bottom: 7px; }
-  .fddlist { max-height: 264px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
-  .fddopt { display: flex; align-items: center; gap: 8px; padding: 6px 7px; border-radius: 6px;
-            font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
-  .fddopt:hover { background: #1b1f29; }
-  .fddopt input { accent-color: var(--accent); margin: 0; cursor: pointer; }
-  .fddopt .fct { margin-left: auto; color: var(--ink-4); font-size: 11px; }
-  .fddopt.zero { opacity: .38; }
-  .fddempty { color: var(--ink-4); font-size: 12px; padding: 8px 7px; }
-  .fddfoot { display: flex; justify-content: space-between; margin-top: 7px;
-             border-top: 1px solid var(--line); padding-top: 7px; }
-  .fddfoot button { background: none; border: none; color: #6ea8fe; font-size: 11.5px;
-                    cursor: pointer; padding: 2px 4px; }
-  .fddfoot button:hover { text-decoration: underline; }
-  .swatch { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.main{flex:1;display:flex;min-height:0}
 
-  /* --- pipeline panel --------------------------------------------------- */
-  .pipe { margin: 18px 28px 0; background: var(--panel); border: 1px solid var(--line);
-          border-radius: 12px; padding: 14px 16px 6px; max-width: 1400px; }
-  .pipe-h { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-  .pipe-h h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .6px;
-               color: var(--ink-3); font-weight: 600; }
-  .pipe-h .sub { color: var(--ink-4); font-size: 12px; }
-  .pipe-h .tbtn { padding: 5px 10px; font-size: 12px; }
-  #sankey { width: 100%; display: block; }
-  .sk-node { cursor: default; }
-  /* Halo so labels stay readable where they sit over a ribbon. */
-  .sk-lab, .sk-val { paint-order: stroke fill; stroke: var(--panel); stroke-width: 3.5px;
-                     stroke-linejoin: round; }
-  .sk-lab { font-size: 11.5px; fill: var(--ink-2); }
-  .sk-val { font-size: 11.5px; fill: var(--ink); font-weight: 700; }
-  .sk-flow { transition: opacity .12s; }
-  .pipe.dim .sk-flow { opacity: .16; }
-  .sk-flow.hot { opacity: .85 !important; }
-  .pipe-empty { color: var(--ink-3); font-size: 13px; padding: 14px 2px 18px; line-height: 1.55; }
-  .pipe-empty b { color: var(--ink-2); }
+/* ------------------------------------------------------------- left list */
+.listpane{width:53%;min-width:420px;display:flex;flex-direction:column;min-height:0;
+          background:var(--pane);border-right:1px solid var(--edge);transition:width .3s}
+.listpane.dropping{box-shadow:inset 0 0 0 1px var(--neon),inset 0 0 40px #c026d31f}
+.filters{display:flex;align-items:center;gap:6px;padding:9px 13px;flex-shrink:0;
+         border-bottom:1px solid var(--edge);position:relative;z-index:30}
+.search{flex:1;min-width:90px;height:30px;padding:0 11px;font-size:12.5px;color:var(--ink);
+        background:var(--field);border:1px solid var(--edge-2);border-radius:var(--r);transition:.2s}
+.search::placeholder{color:var(--ink-4)}
+.search:focus{outline:0;border-color:var(--neon);box-shadow:0 0 0 3px #c026d322,0 0 18px #c026d344}
+.fbtn{height:30px;padding:0 10px;font-size:11.5px;color:var(--ink-2);cursor:pointer;background:var(--field);
+      border:1px solid var(--edge-2);border-radius:var(--r);display:flex;align-items:center;gap:5px;
+      white-space:nowrap;transition:.18s}
+.fbtn:hover{border-color:var(--neon);color:var(--ink)}
+.fbtn.on{background:#2a0733;border-color:var(--neon);color:var(--neon-ink);box-shadow:0 0 12px #c026d344}
+.fbtn .n{font-family:var(--num);font-size:10px;background:var(--neon);color:#fff;border-radius:8px;
+         padding:0 5px;line-height:15px}
+.car{opacity:.5;font-size:9px}
 
-  /* --- grid + cards ----------------------------------------------------- */
-  .wrap { padding: 18px 28px 70px; max-width: 1400px; margin: 0 auto; }
-  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-          padding: 14px; display: flex; flex-direction: column; gap: 6px; }
-  .card:hover { border-color: #313742; }
-  .ctop { display: flex; align-items: center; gap: 8px; }
-  .sc { border: 1px solid; border-radius: 6px; padding: 2px 0; width: 40px; text-align: center;
-        font-weight: 700; font-size: 14px; }
-  .tpill { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
-  .t-remote { background: #14302a; color: #5bd6ac; }
-  .t-hybrid { background: #2c2a16; color: #e0c061; }
-  .t-onsite { background: #1c2333; color: #8fb3ff; }
-  .t-unspecified { background: #20242e; color: var(--ink-3); }
-  .jt { color: var(--ink); font-size: 15px; font-weight: 600; text-decoration: none; line-height: 1.3; }
-  .jt:hover { color: #6ea8fe; }
-  .new { background: #18351f; color: #51d88a; font-size: 9px; font-weight: 700;
-         padding: 1px 6px; border-radius: 10px; }
-  .ghost { background: #33261a; color: #e0a86b; font-size: 9px; font-weight: 700;
-           padding: 1px 6px; border-radius: 10px; cursor: help; }
-  .cco { color: var(--ink-2); font-size: 13px; font-weight: 500; }
-  .cloc { color: var(--ink-3); font-size: 12px; }
-  .age { color: #8b90a0; }
-  .age.stale { color: #d9a15f; }
-  .sal { color: #7ec9a3; font-size: 12px; font-weight: 600; }
-  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
-  .chip { background: #20242e; color: #aab0bc; font-size: 10px; padding: 1px 7px; border-radius: 10px; }
-  .chip.lvl { background: #2a2a40; color: #bfc4ff; text-transform: capitalize; }
-  .chip.yoe { background: #33262a; color: #e0a2ac; }
-  .chip.loc { background: #1c2333; color: #8fb3ff; }
-  a.apply { background: var(--accent); color: #fff; text-decoration: none; font-size: 13px;
-            font-weight: 600; padding: 8px 0; border-radius: 8px; text-align: center; margin-top: 4px; }
-  .crow { display: flex; gap: 6px; }
-  .stsel { background: var(--panel-2); border: 1px solid var(--line-2); color: var(--ink-3);
-           border-radius: 7px; padding: 5px 8px; font-size: 11px; flex: 1; cursor: pointer; }
-  .notebtn { background: var(--panel-2); border: 1px solid var(--line-2); color: var(--ink-3);
-             border-radius: 7px; padding: 5px 9px; font-size: 11px; cursor: pointer; }
-  .notebtn.has { color: #e0c061; border-color: #4a4326; }
-  .notewrap { display: flex; flex-direction: column; gap: 5px; }
-  .notewrap textarea { background: var(--panel-2); border: 1px solid var(--line-2); color: var(--ink-2);
-                       border-radius: 7px; padding: 7px 8px; font-size: 11.5px; resize: vertical;
-                       min-height: 54px; font-family: inherit; }
-  .notewrap input[type=date] { background: var(--panel-2); border: 1px solid var(--line-2);
-                               color: var(--ink-2); border-radius: 7px; padding: 5px 8px; font-size: 11px; }
-  .card[data-status=applied]      { border-color: #24457e; }
-  .card[data-status=screening]    { border-color: #2f6fdd66; }
-  .card[data-status=interview]    { border-color: #4f8ef088; }
-  .card[data-status=offer]        { border-color: #7fb0f7aa; box-shadow: 0 0 0 1px #7fb0f733; }
-  .card[data-status=accepted]     { border-color: var(--st-accepted); box-shadow: 0 0 0 1px #0ca30c33; }
-  .card[data-status=rejected]     { opacity: .45; border-color: #5c2b2b; }
-  .card[data-status=ghosted]      { opacity: .5; }
+.fdd{position:relative}
+.fddmenu{position:absolute;top:calc(100% + 6px);left:0;width:262px;z-index:50;padding:8px;
+         background:#0a0a13;border:1px solid var(--edge-2);border-radius:var(--r-lg);
+         box-shadow:0 18px 44px #000c,0 0 0 1px #c026d322,0 0 30px #c026d31f;
+         animation:pop .16s ease-out}
+@keyframes pop{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+.fddmenu.right{left:auto;right:0}
+.fddsearch{width:100%;height:29px;padding:0 9px;margin-bottom:7px;font-size:12px;color:var(--ink);
+           background:var(--field);border:1px solid var(--edge-2);border-radius:6px}
+.fddsearch:focus{outline:0;border-color:var(--neon)}
+.fddlist{max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
+.fddgrp{font-size:9px;letter-spacing:1.2px;color:var(--ink-4);text-transform:uppercase;
+        padding:8px 7px 3px;font-weight:700}
+.fddopt{display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:6px;font-size:12.5px;
+        color:var(--ink-2);cursor:pointer;transition:.12s}
+.fddopt:hover{background:#1a0f2b;color:var(--ink)}
+.fddopt input{accent-color:var(--neon);margin:0;cursor:pointer}
+.fddopt .fct{margin-left:auto;font-family:var(--num);color:var(--ink-4);font-size:11px}
+.fddopt.zero{opacity:.4}
+.sw{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.fddfoot{display:flex;justify-content:space-between;margin-top:7px;padding-top:7px;
+         border-top:1px solid var(--edge)}
+.fddfoot button{background:0;border:0;color:var(--cyan-ink);font-size:11px;cursor:pointer;padding:2px}
+.fddfoot button:hover{text-shadow:0 0 8px currentColor}
+.fddempty{color:var(--ink-4);font-size:12px;padding:9px 7px}
 
-  /* --- bottom sections -------------------------------------------------- */
-  .nomatch { color: var(--ink-3); padding: 30px 0; text-align: center; }
-  .section-h { color: var(--ink-3); font-size: 13px; font-weight: 600; text-transform: uppercase;
-               letter-spacing: .6px; margin: 30px 0 12px; }
-  .empty-co, .failed-co { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-           background: #14161d; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 8px;
-           font-size: 13px; }
-  .failed-co { border-color: #3a2526; }
-  .failed-co .why { color: #d98f8f; }
-  .src { color: #8b90a0; font-size: 11px; }
-  .failed-co a, .empty-co a { margin-left: auto; color: #6ea8fe; text-decoration: none; font-size: 12px; }
-  .coname-sm { font-weight: 600; }
-  footer { color: var(--ink-4); font-size: 12px; padding: 0 28px 40px; text-align: center; }
-  .hidden { display: none !important; }
-  .tip { position: fixed; z-index: 60; background: #0b0d12; border: 1px solid var(--line-2);
-         border-radius: 8px; padding: 7px 10px; font-size: 12px; color: var(--ink);
-         pointer-events: none; box-shadow: 0 8px 24px #000b; }
+.lhead{display:grid;grid-template-columns:42px 1fr 120px 92px 42px 82px;gap:9px;padding:7px 13px;
+       font-size:9px;letter-spacing:1.2px;color:var(--ink-4);text-transform:uppercase;font-weight:700;
+       border-bottom:1px solid var(--edge);flex-shrink:0;user-select:none}
+.lhead span{cursor:pointer;transition:.15s}
+.lhead span:hover{color:var(--cyan-ink)}
+.lhead span.sorted{color:var(--neon-ink)}
+.rows{flex:1;overflow-y:auto}
+.row{display:grid;grid-template-columns:42px 1fr 120px 92px 42px 82px;gap:9px;padding:8px 13px;
+     align-items:center;cursor:grab;position:relative;border-bottom:1px solid var(--edge-faint);
+     transition:background .14s}
+.row:hover{background:#12091f;box-shadow:inset 0 0 26px #c026d312}
+.row::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--neon);
+             box-shadow:0 0 10px var(--neon);transform:scaleY(0);transition:transform .18s}
+.row:hover::before{transform:scaleY(1)}
+.row.dragging{opacity:.35}
+.row.tracked{background:#0d1220}
+.row.tracked .rt{color:var(--ink-2)}
+.sc{font-family:var(--num);font-size:12px;font-weight:700;text-align:center;padding:2px 0;
+    border-radius:5px;color:var(--cyan-ink);background:#03181f;border:1px solid #0e5c72;
+    box-shadow:0 0 10px #67e8f92b,inset 0 0 8px #67e8f912}
+.rt{font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+.rt a{color:inherit;text-decoration:none}
+.rt a:hover{color:var(--neon-ink);text-shadow:0 0 10px #c026d366}
+.rc,.rl{font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ra{font-family:var(--num);font-size:11px;color:var(--ink-4);text-align:right}
+.ra.stale{color:var(--amber)}
+.rs{font-family:var(--num);font-size:10.5px;color:var(--money);text-align:right;white-space:nowrap}
+.tag{font-size:8px;letter-spacing:.6px;font-weight:700;padding:1px 5px;border-radius:6px;
+     margin-left:6px;vertical-align:1px}
+.tag.ghost{background:#2a1004;color:#fb923c}
+.tag.new{background:#04230f;color:#22ff9c}
+.tag.loc{background:#0d1b2e;color:#7fb0f7}
+.stagedot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-left:6px;
+          vertical-align:1px;box-shadow:0 0 7px currentColor}
+.racts{position:absolute;right:9px;top:50%;transform:translateY(-50%);display:none;gap:4px;
+       background:linear-gradient(90deg,transparent,#12091f 22%);padding-left:26px}
+.row:hover .racts{display:flex}
+.iact{width:25px;height:25px;display:grid;place-items:center;font-size:12px;cursor:pointer;
+      background:var(--card);border:1px solid var(--edge-2);border-radius:6px;color:var(--ink-2);
+      transition:.16s}
+.iact:hover{border-color:var(--neon);color:var(--neon-ink);box-shadow:0 0 12px #c026d355}
+
+/* ----------------------------------------------------------- right board */
+.right{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+.board{flex:1;display:flex;flex-direction:column;min-height:0;padding:11px 13px;gap:9px}
+.cols{flex:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;min-height:0}
+.col{display:flex;flex-direction:column;min-height:0;border-radius:var(--r-lg);background:var(--panel);
+     border:1px solid var(--edge);transition:.2s;position:relative}
+.col.over{border-color:var(--neon);background:#140828;box-shadow:0 0 0 1px var(--neon),0 0 30px #c026d344}
+.ch{display:flex;align-items:center;gap:6px;padding:9px 10px;flex-shrink:0;font-size:9px;
+    letter-spacing:1.2px;text-transform:uppercase;font-weight:700;color:var(--ink-3);
+    border-bottom:1px solid var(--edge-faint)}
+.ch .cn{margin-left:auto;font-family:var(--num);font-size:11px;color:var(--ink);letter-spacing:0}
+.cb{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:7px}
+.kc{padding:9px 10px;border-radius:var(--r);background:var(--card);border:1px solid var(--edge-2);
+    cursor:grab;position:relative;overflow:hidden;animation:rise .3s both;
+    transition:transform .18s,box-shadow .18s,border-color .18s}
+.kc:hover{transform:translateY(-2px);border-color:var(--neon);
+          box-shadow:0 0 20px #c026d344,0 0 0 1px #f0abfc55}
+.kc::after{content:'';position:absolute;inset:0;pointer-events:none;
+           background:linear-gradient(115deg,transparent 38%,#f0abfc26 50%,transparent 62%);
+           transform:translateX(-130%);transition:transform .65s}
+.kc:hover::after{transform:translateX(130%)}
+.kc.dragging{opacity:.35}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.kc .kt{font-size:11.5px;font-weight:600;line-height:1.32;color:var(--ink);margin-bottom:2px;
+        padding-right:16px}
+.kc .kco{font-size:10.5px;color:var(--ink-3)}
+.kmeta{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:9.5px;color:var(--ink-4);
+       font-family:var(--num);flex-wrap:wrap}
+.kmeta .ks{margin-left:auto;color:var(--money)}
+.kx{position:absolute;top:6px;right:6px;width:17px;height:17px;display:none;place-items:center;
+    font-size:11px;line-height:1;background:var(--field);border:1px solid var(--edge-2);
+    border-radius:5px;color:var(--ink-4);cursor:pointer;z-index:2}
+.kc:hover .kx{display:grid}
+.kx:hover{color:#ff8080;border-color:#5c2b2b}
+.knote{width:100%;margin-top:7px;padding:6px 7px;font-size:11px;font-family:inherit;color:var(--ink-2);
+       background:var(--field);border:1px solid var(--edge-2);border-radius:6px;resize:vertical;
+       min-height:44px}
+.knote:focus{outline:0;border-color:var(--neon)}
+.kc .nbadge{color:var(--amber)}
+.slot{border:1px dashed var(--edge-2);border-radius:var(--r);padding:18px 10px;text-align:center;
+      font-size:10.5px;color:var(--ink-4);line-height:1.5}
+
+.closed{flex-shrink:0;display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:var(--r-lg);
+        background:var(--panel);border:1px dashed var(--edge-2);font-size:10.5px;color:var(--ink-3)}
+.closed .lab{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;
+             color:var(--ink-4);margin-right:2px}
+.cl{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;background:var(--field);
+    border:1px solid var(--edge-2);cursor:pointer;transition:.18s;white-space:nowrap}
+.cl:hover{border-color:var(--neon);box-shadow:0 0 14px #c026d344}
+.cl.over{border-color:var(--neon);background:#2a0733;box-shadow:0 0 18px #c026d366}
+.cl b{font-family:var(--num);color:var(--ink)}
+.cl .sw{border-radius:50%}
+.hint{margin-left:auto;color:var(--ink-4);font-size:10px}
+
+/* ------------------------------------------------------------- flow view */
+.flow{flex:1;display:flex;flex-direction:column;min-height:0;padding:16px 22px 20px;gap:14px;
+      overflow-y:auto}
+.funnel{display:flex;gap:9px;flex-wrap:wrap;flex-shrink:0}
+.fstat{flex:1;min-width:128px;padding:11px 13px;border-radius:var(--r-lg);background:var(--panel);
+       border:1px solid var(--edge);position:relative;overflow:hidden}
+.fstat::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--bar)}
+.fstat .fv{font-family:var(--num);font-size:23px;font-weight:700;color:var(--ink);line-height:1.1}
+.fstat .fl{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;color:var(--ink-3);
+           margin-top:3px;font-weight:700}
+.fstat .fr{font-size:10.5px;color:var(--ink-4);margin-top:4px;font-family:var(--num)}
+.flowbox{flex:1;min-height:260px;border-radius:var(--r-lg);background:var(--panel);
+         border:1px solid var(--edge);padding:14px 16px;display:flex;flex-direction:column}
+.flowbox h2{margin:0 0 2px;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;
+            color:var(--ink-3);font-weight:700}
+.flowbox .sub{font-size:11px;color:var(--ink-4);margin-bottom:8px}
+#sankey{width:100%;flex:1;display:block}
+.sk-lab,.sk-val{paint-order:stroke fill;stroke:var(--panel);stroke-width:3.5px;stroke-linejoin:round}
+.sk-lab{font-size:11.5px;fill:var(--ink-2)}
+.sk-val{font-size:12px;fill:var(--ink);font-weight:700;font-family:var(--num)}
+.sk-flow{transition:opacity .14s}
+.flowbox.dim .sk-flow{opacity:.13}
+.sk-flow.hot{opacity:.9 !important}
+.sk-node{transition:filter .14s}
+.sk-node:hover{filter:brightness(1.3)}
+.flow-empty{color:var(--ink-3);font-size:13px;line-height:1.7;padding:30px 4px;text-align:center}
+.flow-empty b{color:var(--neon-ink)}
+
+.tip{position:fixed;z-index:90;padding:7px 11px;font-size:12px;color:var(--ink);background:#0a0a13;
+     border:1px solid var(--edge-2);border-radius:7px;pointer-events:none;
+     box-shadow:0 10px 30px #000c,0 0 18px #c026d333}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:95;display:flex;
+       align-items:center;gap:12px;padding:10px 16px;font-size:12.5px;color:var(--ink);
+       background:#0d0a18;border:1px solid var(--neon);border-radius:24px;
+       box-shadow:0 0 26px #c026d355,0 12px 34px #000c;animation:pop .18s}
+.toast button{background:0;border:0;color:var(--cyan-ink);font-size:12px;cursor:pointer;font-weight:700}
+.empty-list{padding:40px 20px;text-align:center;color:var(--ink-4);font-size:12.5px}
+
+@media(max-width:1180px){
+  .listpane{width:46%;min-width:360px}
+  .cols{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 """
 
 
 JS = """
-const CNAMES = __CNAMES__;
-const STAGES = __STAGES__;            // [[key, label, cssvar], ...] in funnel order
-const PROGRESSION = __PROGRESSION__;  // stage keys that form the main path
-const EXITS = __EXITS__;              // terminal stages branching off the path
-const FACET_DEFS = __FACET_DEFS__;    // [[field, label], ...]
+const JOBS = __JOBS__;
+const STAGES = __STAGES__;
+const BOARD_STAGES = __BOARD_STAGES__;
+const CLOSED_STAGES = __CLOSED_STAGES__;
+const FACET_DEFS = __FACET_DEFS__;
+const PRIMARY_FACETS = __PRIMARY_FACETS__;
 const STALE_BUCKETS = __STALE_BUCKETS__;
-const RUN_DATE = "__DATE__";
 
-const LSKEY = 'jobscope.apps';
-const VIEWKEY = 'jobscope.view';
-
-const q = document.getElementById('q');
-const grid = document.getElementById('grid');
-const cards = [...document.querySelectorAll('.card')];
-const shown = document.getElementById('shown');
-const noMatch = document.getElementById('noMatch');
-const sortSel = document.getElementById('sortSel');
-const tip = document.getElementById('tip');
+const LSKEY = 'jobscope.apps', VIEWKEY = 'jobscope.view';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const rows = $$('.row');
+const q = $('#q'), rowsEl = $('#rows'), tip = $('#tip');
 
 let APPS = Object.assign({}, __APPS__, JSON.parse(localStorage.getItem(LSKEY) || '{}'));
 const facets = {};
 FACET_DEFS.forEach(([f]) => facets[f] = new Set());
-let newOnly = false, freshOnly = true, ghostOnly = false, pipeAll = true;
+let newOnly = false, freshOnly = true, ghostOnly = false;
+let sortKey = 'score', sortDir = -1, undoState = null, toastTimer = null;
 
+const stage = id => (APPS[id] || {}).status || 'none';
+const meta = k => STAGES.find(s => s[0] === k) || ['none', 'Not applied', '--st-none'];
+const label = k => meta(k)[1];
+const cvar = k => meta(k)[2];
 const saveApps = () => localStorage.setItem(LSKEY, JSON.stringify(APPS));
-const stageLabel = k => (STAGES.find(s => s[0] === k) || [k, k])[1];
-const stageVar = k => (STAGES.find(s => s[0] === k) || [k, k, '--st-none'])[2];
 
-/* ---------------------------------------------------------------- state */
+/* ------------------------------------------------------------------ state */
 
-function entry(id) {
+function setStage(id, next, record) {
+  const prev = stage(id);
+  if (prev === next) return;
   let e = APPS[id];
-  if (!e) { e = APPS[id] = { status: 'none', history: [] }; }
+  if (!e) e = APPS[id] = { history: [] };
   if (!e.history) e.history = [];
-  return e;
-}
-
-function setStatus(card, status, stamp) {
-  const id = card.dataset.id, e = entry(id);
-  const prev = e.status || 'none';
-  e.status = status;
-  card.dataset.status = status;
-  const sel = card.querySelector('.stsel');
-  if (sel) sel.value = status;
-  if (stamp && prev !== status) {
+  e.status = next;
+  if (record) {
     const today = new Date().toISOString().slice(0, 10);
     if (!e.history.length && prev !== 'none') e.history.push({ stage: prev, date: today });
-    e.history.push({ stage: status, date: today });
-    if (status === 'applied' && !e.applied_date) e.applied_date = today;
+    if (next !== 'none') e.history.push({ stage: next, date: today });
+    if (next === 'applied' && !e.applied_date) e.applied_date = today;
   }
-  e.title = card.dataset.title;
-  e.company = CNAMES[card.dataset.company] || '';
-  e.url = card.dataset.url;
-  if (status === 'none' && !(e.note || '').trim() && e.history.length < 2) delete APPS[id];
+  const j = JOBS[id] || {};
+  e.title = j.title; e.company = j.comp; e.url = j.url;
+  if (next === 'none' && !(e.note || '').trim()) delete APPS[id];
+  saveApps();
 }
 
-function statusOf(card) { return (APPS[card.dataset.id] || {}).status || 'none'; }
-
-/* --------------------------------------------------------------- filter */
-
-function vals(card, f) {
-  if (f === 'state') return card.dataset.state.split(' ').filter(Boolean);
-  if (f === 'status') return [statusOf(card)];
-  return [card.dataset[f]];
+function move(id, next) {
+  const prev = stage(id);
+  setStage(id, next, true);
+  undoState = { id, prev };
+  render();
+  toast(`${JOBS[id].title} \\u2192 ${label(next)}`, () => {
+    setStage(id, undoState.prev, false);
+    const e = APPS[id]; if (e && e.history) e.history.pop();
+    saveApps(); render();
+  });
 }
 
-function passes(card, skip) {
+function toast(msg, undo) {
+  $('#toast')?.remove();
+  clearTimeout(toastTimer);
+  const t = document.createElement('div');
+  t.className = 'toast'; t.id = 'toast';
+  t.innerHTML = `<span>${msg}</span>`;
+  const b = document.createElement('button');
+  b.textContent = 'Undo';
+  b.onclick = () => { undo(); t.remove(); };
+  t.appendChild(b);
+  document.body.appendChild(t);
+  toastTimer = setTimeout(() => t.remove(), 4200);
+}
+
+/* ----------------------------------------------------------------- filter */
+
+function vals(row, f) {
+  if (f === 'state') return row.dataset.state.split(' ').filter(Boolean);
+  if (f === 'status') return [stage(row.dataset.id)];
+  return [row.dataset[f]];
+}
+
+function passes(row, skip) {
   const term = q.value.trim().toLowerCase();
-  if (term && !card.dataset.search.includes(term)) return false;
-  if (newOnly && card.dataset.new !== '1') return false;
-  if (ghostOnly && card.dataset.ghost !== '1') return false;
-  if (freshOnly && STALE_BUCKETS.includes(card.dataset.age)) return false;
+  if (term && !row.dataset.search.includes(term)) return false;
+  if (newOnly && row.dataset.new !== '1') return false;
+  if (ghostOnly && row.dataset.ghost !== '1') return false;
+  if (freshOnly && STALE_BUCKETS.includes(row.dataset.age)) return false;
   for (const f in facets) {
     if (f === skip || !facets[f].size) continue;
-    if (!vals(card, f).some(v => facets[f].has(v))) return false;
+    if (!vals(row, f).some(v => facets[f].has(v))) return false;
   }
   return true;
 }
 
-/* ------------------------------------------------------------ dropdowns */
+/* -------------------------------------------------------------- dropdowns */
 
 function optionsFor(field) {
   const counts = new Map();
-  cards.forEach(c => {
-    if (!passes(c, field)) return;
-    vals(c, field).forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
+  rows.forEach(r => {
+    if (!passes(r, field)) return;
+    vals(r, field).forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
   });
-  const all = new Set([...counts.keys()]);
-  facets[field].forEach(v => all.add(v));      // keep a chosen value visible at 0
-  const dd = document.querySelector(`.fdd[data-facet="${field}"]`);
+  facets[field].forEach(v => { if (!counts.has(v)) counts.set(v, 0); });
+  const dd = document.querySelector(`[data-facet="${field}"]`);
   const order = JSON.parse(dd.dataset.order || '[]');
-  const label = JSON.parse(dd.dataset.labels || '{}');
-  const list = [...all].sort((a, b) => {
+  const labels = JSON.parse(dd.dataset.labels || '{}');
+  return [...counts.keys()].sort((a, b) => {
     const ia = order.indexOf(a), ib = order.indexOf(b);
-    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-    return (counts.get(b) || 0) - (counts.get(a) || 0) || String(a).localeCompare(String(b));
-  });
-  return list.map(v => ({ v, label: label[v] || CNAMES[v] || v, n: counts.get(v) || 0 }));
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    return counts.get(b) - counts.get(a) || String(a).localeCompare(String(b));
+  }).map(v => ({ v, label: labels[v] || v, n: counts.get(v) }));
 }
 
-function renderMenu(dd) {
-  const field = dd.dataset.facet;
+function renderMenu(dd, field) {
   const term = (dd.querySelector('.fddsearch').value || '').trim().toLowerCase();
   const list = dd.querySelector('.fddlist');
-  const opts = optionsFor(field).filter(o => !term || o.label.toLowerCase().includes(term));
-  if (!opts.length) { list.innerHTML = '<div class="fddempty">No match.</div>'; return; }
-  list.innerHTML = opts.map(o => {
-    const on = facets[field].has(o.v);
-    const sw = field === 'status'
-      ? `<span class="swatch" style="background:var(${stageVar(o.v)})"></span>` : '';
-    return `<label class="fddopt${o.n ? '' : ' zero'}">`
-      + `<input type="checkbox" value="${o.v}"${on ? ' checked' : ''}>${sw}`
-      + `<span>${o.label}</span><span class="fct">${o.n}</span></label>`;
-  }).join('');
-}
-
-function syncFacetButtons() {
-  document.querySelectorAll('.fdd').forEach(dd => {
-    const f = dd.dataset.facet, n = facets[f].size;
-    dd.classList.toggle('active', n > 0);
-    const badge = dd.querySelector('.cnt');
-    badge.textContent = n; badge.classList.toggle('hidden', !n);
+  const fields = field ? [field] : JSON.parse(dd.dataset.fields || '[]');
+  let out = '';
+  fields.forEach(f => {
+    const opts = optionsFor(f).filter(o => !term || o.label.toLowerCase().includes(term));
+    if (!opts.length) return;
+    if (fields.length > 1) {
+      const def = FACET_DEFS.find(d => d[0] === f);
+      out += `<div class="fddgrp">${def ? def[1] : f}</div>`;
+    }
+    out += opts.map(o => {
+      const on = facets[f].has(o.v);
+      const sw = f === 'status'
+        ? `<span class="sw" style="background:var(${cvar(o.v)})"></span>` : '';
+      return `<label class="fddopt${o.n ? '' : ' zero'}" data-f="${f}">`
+        + `<input type="checkbox" value="${o.v}"${on ? ' checked' : ''}>${sw}`
+        + `<span>${o.label}</span><span class="fct">${o.n}</span></label>`;
+    }).join('');
   });
+  list.innerHTML = out || '<div class="fddempty">No match.</div>';
 }
 
 function closeMenus(except) {
-  document.querySelectorAll('.fddmenu').forEach(m => {
-    if (m.parentElement !== except) m.classList.add('hidden');
+  $$('.fddmenu').forEach(m => { if (m.parentElement !== except) m.remove(); });
+  $$('.fdd .fbtn').forEach(b => b.classList.remove('menu-open'));
+}
+
+function wireDropdown(dd) {
+  const single = dd.dataset.facet, fields = JSON.parse(dd.dataset.fields || '[]');
+  dd.querySelector('.fbtn').addEventListener('click', e => {
+    e.stopPropagation();
+    const open = dd.querySelector('.fddmenu');
+    closeMenus();
+    if (open) return;
+    const m = document.createElement('div');
+    m.className = 'fddmenu' + (dd.dataset.align === 'right' ? ' right' : '');
+    m.innerHTML = `<input class="fddsearch" placeholder="Search\\u2026" autocomplete="off">`
+      + `<div class="fddlist"></div><div class="fddfoot">`
+      + `<button class="fdd-all">Select all</button><button class="fdd-none">Clear</button></div>`;
+    dd.appendChild(m);
+    m.addEventListener('click', ev => ev.stopPropagation());
+    m.querySelector('.fddsearch').addEventListener('input', () => renderMenu(dd, single));
+    m.querySelector('.fddlist').addEventListener('change', ev => {
+      const cb = ev.target.closest('input'); if (!cb) return;
+      const f = cb.closest('.fddopt').dataset.f;
+      cb.checked ? facets[f].add(cb.value) : facets[f].delete(cb.value);
+      render(); renderMenu(dd, single);
+    });
+    m.querySelector('.fdd-all').addEventListener('click', () => {
+      (single ? [single] : fields).forEach(f =>
+        optionsFor(f).forEach(o => { if (o.n) facets[f].add(o.v); }));
+      render(); renderMenu(dd, single);
+    });
+    m.querySelector('.fdd-none').addEventListener('click', () => {
+      (single ? [single] : fields).forEach(f => facets[f].clear());
+      render(); renderMenu(dd, single);
+    });
+    renderMenu(dd, single);
+    m.querySelector('.fddsearch').focus();
+  });
+}
+$$('.fdd').forEach(wireDropdown);
+document.addEventListener('click', () => closeMenus());
+
+/* --------------------------------------------------------------- the list */
+
+function sortRows() {
+  const get = (r) => {
+    if (sortKey === 'score') return +r.dataset.score;
+    if (sortKey === 'age') return +r.dataset.days;
+    if (sortKey === 'salary') return +r.dataset.salnum;
+    return null;
+  };
+  rows.slice().sort((a, b) => {
+    if (sortKey === 'title' || sortKey === 'company' || sortKey === 'location') {
+      const k = sortKey === 'company' ? 'comp' : sortKey === 'location' ? 'loc' : 'ttl';
+      return a.dataset[k].localeCompare(b.dataset[k]) * sortDir;
+    }
+    return (get(a) - get(b)) * sortDir || a.dataset.comp.localeCompare(b.dataset.comp);
+  }).forEach(r => rowsEl.appendChild(r));
+}
+
+/* ---------------------------------------------------------------- kanban */
+
+function kcard(id) {
+  const j = JOBS[id], e = APPS[id] || {};
+  const note = (e.note || '').trim();
+  const div = document.createElement('div');
+  div.className = 'kc'; div.draggable = true; div.dataset.id = id;
+  div.innerHTML = `<button class="kx" title="Back to Not applied">\\u00d7</button>
+    <div class="kt">${j.title}</div><div class="kco">${j.comp}</div>
+    <div class="kmeta"><span>${j.region}</span><span>\\u00b7</span><span>${j.age}</span>
+      ${note ? '<span class="nbadge" title="Has a note">\\u270e</span>' : ''}
+      <span class="ks">${j.salary || ''}</span></div>`;
+  return div;
+}
+
+function renderBoard() {
+  BOARD_STAGES.forEach(k => {
+    const box = document.getElementById('cb-' + k);
+    const ids = Object.keys(APPS).filter(id => JOBS[id] && stage(id) === k);
+    box.innerHTML = '';
+    if (!ids.length) {
+      box.innerHTML = '<div class="slot">Drag a role here</div>';
+    } else {
+      ids.forEach((id, i) => {
+        const c = kcard(id);
+        c.style.animationDelay = (i * 22) + 'ms';
+        box.appendChild(c);
+      });
+    }
+    document.getElementById('cn-' + k).textContent = ids.length;
+  });
+  CLOSED_STAGES.forEach(k => {
+    document.getElementById('cn-' + k).textContent =
+      Object.keys(APPS).filter(id => JOBS[id] && stage(id) === k).length;
   });
 }
 
-document.querySelectorAll('.fdd').forEach(dd => {
-  const menu = dd.querySelector('.fddmenu');
-  dd.querySelector('.fddbtn').addEventListener('click', e => {
-    e.stopPropagation();
-    const wasOpen = !menu.classList.contains('hidden');
-    closeMenus(dd);
-    if (wasOpen) { menu.classList.add('hidden'); return; }
-    renderMenu(dd); menu.classList.remove('hidden');
-    dd.querySelector('.fddsearch').focus();
-  });
-  menu.addEventListener('click', e => e.stopPropagation());
-  dd.querySelector('.fddsearch').addEventListener('input', () => renderMenu(dd));
-  dd.querySelector('.fddlist').addEventListener('change', e => {
-    const cb = e.target.closest('input[type=checkbox]'); if (!cb) return;
-    const f = dd.dataset.facet;
-    if (cb.checked) facets[f].add(cb.value); else facets[f].delete(cb.value);
-    apply(); renderMenu(dd);
-  });
-  dd.querySelector('.fdd-all').addEventListener('click', () => {
-    optionsFor(dd.dataset.facet).forEach(o => { if (o.n) facets[dd.dataset.facet].add(o.v); });
-    apply(); renderMenu(dd);
-  });
-  dd.querySelector('.fdd-none').addEventListener('click', () => {
-    facets[dd.dataset.facet].clear(); apply(); renderMenu(dd);
-  });
+/* ------------------------------------------------------------ drag & drop */
+
+let dragId = null;
+
+function onDragStart(el, id) {
+  dragId = id;
+  el.classList.add('dragging');
+  document.body.classList.add('dragging-active');
+}
+function onDragEnd(el) {
+  el.classList.remove('dragging');
+  dragId = null;
+  $$('.over').forEach(e => e.classList.remove('over'));
+  $('#listpane').classList.remove('dropping');
+}
+
+rowsEl.addEventListener('dragstart', e => {
+  const r = e.target.closest('.row'); if (!r) return;
+  e.dataTransfer.effectAllowed = 'move';
+  onDragStart(r, r.dataset.id);
 });
-document.addEventListener('click', () => closeMenus(null));
+rowsEl.addEventListener('dragend', e => {
+  const r = e.target.closest('.row'); if (r) onDragEnd(r);
+});
 
-/* --------------------------------------------------------------- sankey */
+function wireDropZone(el, stageKey) {
+  el.addEventListener('dragover', e => {
+    if (!dragId) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+    el.classList.add('over');
+  });
+  el.addEventListener('dragleave', e => {
+    if (!el.contains(e.relatedTarget)) el.classList.remove('over');
+  });
+  el.addEventListener('drop', e => {
+    e.preventDefault(); el.classList.remove('over');
+    if (dragId) move(dragId, stageKey);
+  });
+}
+BOARD_STAGES.concat(CLOSED_STAGES).forEach(k =>
+  wireDropZone(document.getElementById('dz-' + k), k));
 
-/* The funnel starts at Applied — "Not applied" is a pool, not a flow, and
-   including it dwarfs every real stage. Each exit (Rejected / No response)
-   gets its OWN node in the column just after the stage it branched from, so
-   drop-off reads as a short branch off the spine rather than one long ribbon
-   crossing the whole chart. */
+// Dropping back onto the list un-tracks the role.
+const lp = $('#listpane');
+lp.addEventListener('dragover', e => {
+  if (!dragId || stage(dragId) === 'none') return;
+  e.preventDefault(); lp.classList.add('dropping');
+});
+lp.addEventListener('dragleave', e => {
+  if (!lp.contains(e.relatedTarget)) lp.classList.remove('dropping');
+});
+lp.addEventListener('drop', e => {
+  lp.classList.remove('dropping');
+  if (dragId && stage(dragId) !== 'none') { e.preventDefault(); move(dragId, 'none'); }
+});
+
+$('.cols').addEventListener('dragstart', e => {
+  const c = e.target.closest('.kc'); if (!c) return;
+  e.dataTransfer.effectAllowed = 'move';
+  onDragStart(c, c.dataset.id);
+});
+$('.cols').addEventListener('dragend', e => {
+  const c = e.target.closest('.kc'); if (c) onDragEnd(c);
+});
+$('.cols').addEventListener('click', e => {
+  const x = e.target.closest('.kx');
+  if (x) { move(x.closest('.kc').dataset.id, 'none'); return; }
+  const card = e.target.closest('.kc');
+  if (!card || e.target.classList.contains('knote')) return;
+  let n = card.querySelector('.knote');
+  if (n) { n.remove(); return; }
+  n = document.createElement('textarea');
+  n.className = 'knote';
+  n.placeholder = 'Notes \\u2014 recruiter, referral, follow-up\\u2026';
+  n.value = (APPS[card.dataset.id] || {}).note || '';
+  n.addEventListener('click', ev => ev.stopPropagation());
+  n.addEventListener('input', () => {
+    const e2 = APPS[card.dataset.id]; if (!e2) return;
+    e2.note = n.value; saveApps();
+  });
+  card.appendChild(n); n.focus();
+});
+
+/* ----------------------------------------------------------- row actions */
+
+rowsEl.addEventListener('click', e => {
+  const btn = e.target.closest('.iact'); if (!btn) return;
+  const id = btn.closest('.row').dataset.id;
+  if (btn.dataset.act === 'open') window.open(JOBS[id].url, '_blank', 'noopener');
+  if (btn.dataset.act === 'apply') move(id, 'applied');
+});
+
+/* ----------------------------------------------------------------- flow */
+
 function buildFlows() {
-  const track = PROGRESSION.filter(s => s !== 'none');
+  const track = BOARD_STAGES.concat(['accepted']);
   const reached = {}, flows = new Map();
   track.forEach(k => reached[k] = 0);
   let applied = 0;
-  // Default scope is EVERY application: a role you applied to shouldn't fall out
-  // of your own pipeline just because the posting aged past the freshness filter.
-  const scope = pipeAll ? cards : cards.filter(c => passes(c, 'status'));
-  scope.forEach(c => {
-    const e = APPS[c.dataset.id];
-    if (!e) return;
+  Object.keys(APPS).forEach(id => {
+    if (!JOBS[id]) return;
+    const e = APPS[id];
     const hist = (e.history && e.history.length ? e.history.map(h => h.stage) : [e.status])
       .filter(s => s && s !== 'none');
     if (!hist.length) return;
@@ -377,27 +605,33 @@ function buildFlows() {
     applied++;
     new Set(path.filter(s => track.includes(s))).forEach(s => reached[s]++);
     for (let i = 0; i < path.length - 1; i++) {
-      flows.set(path[i] + '>' + path[i + 1], (flows.get(path[i] + '>' + path[i + 1]) || 0) + 1);
+      const key = path[i] + '>' + path[i + 1];
+      flows.set(key, (flows.get(key) || 0) + 1);
     }
   });
   return { reached, flows, applied, track };
 }
 
 function drawSankey() {
-  const svg = document.getElementById('sankey');
-  const empty = document.getElementById('pipeEmpty');
+  const svg = $('#sankey'), empty = $('#flowEmpty');
   const { reached, flows, applied, track } = buildFlows();
+  $('#funnel').innerHTML = track.map((k, i) => {
+    const v = reached[k] || 0;
+    const base = i === 0 ? applied : (reached[track[i - 1]] || 0);
+    const rate = i === 0 || !base ? '' : Math.round(v / base * 100) + '% of ' + label(track[i - 1]);
+    return `<div class="fstat" style="--bar:var(${cvar(k)})"><div class="fv">${v}</div>`
+      + `<div class="fl">${label(k)}</div><div class="fr">${rate || '&nbsp;'}</div></div>`;
+  }).join('');
+
   if (!applied) { svg.classList.add('hidden'); empty.classList.remove('hidden'); return; }
   svg.classList.remove('hidden'); empty.classList.add('hidden');
 
-  // Node instances: progression nodes at their stage column, one exit node per
-  // (stage, exit) pair placed one column further right.
   const colOf = {}; track.forEach((k, i) => colOf[k] = i);
   const nodes = {};
   track.forEach(k => { if (reached[k]) nodes[k] = { v: reached[k], stage: k, col: colOf[k] }; });
   flows.forEach((v, key) => {
     const [a, b] = key.split('>');
-    if (!EXITS.includes(b) || colOf[a] === undefined) return;
+    if (!CLOSED_STAGES.includes(b) || colOf[a] === undefined || b === 'accepted') return;
     nodes[b + '@' + a] = { v, stage: b, col: colOf[a] + 1 };
   });
 
@@ -406,21 +640,20 @@ function drawSankey() {
   const colIdx = Object.keys(byCol).map(Number).sort((a, b) => a - b);
   const maxSum = Math.max(...colIdx.map(c => byCol[c].reduce((a, id) => a + nodes[id].v, 0)));
 
-  const W = svg.clientWidth || 1100, colW = 14, gap = 5, labelW = 118;
-  const H = Math.max(200, Math.min(400, maxSum * 22 + 40));
-  const padT = 14, padB = 20, plot = H - padT - padB;
+  const W = svg.clientWidth || 1000, H = Math.max(240, svg.clientHeight || 300);
+  const colW = 15, gap = 6, labelW = 132;
+  const padT = 16, padB = 16, plot = H - padT - padB;
   const unit = plot / Math.max(maxSum, 1);
   const span = Math.max(1, colIdx[colIdx.length - 1]);
-  const xOf = c => 6 + (c / span) * (W - colW - labelW - 12);
+  const xOf = c => 8 + (c / span) * (W - colW - labelW - 16);
 
   const pos = {};
   colIdx.forEach(c => {
-    // Spine node first, drop-offs stacked beneath it.
-    const ids = byCol[c].sort((a, b) => (EXITS.includes(nodes[a].stage) ? 1 : 0)
-                                      - (EXITS.includes(nodes[b].stage) ? 1 : 0));
+    const ids = byCol[c].sort((a, b) => (CLOSED_STAGES.includes(nodes[a].stage) ? 1 : 0)
+                                      - (CLOSED_STAGES.includes(nodes[b].stage) ? 1 : 0));
     let y = padT;
     ids.forEach(id => {
-      const h = Math.max(4, nodes[id].v * unit);
+      const h = Math.max(5, nodes[id].v * unit);
       pos[id] = { x: xOf(c), y, h, inY: y, outY: y };
       y += h + gap;
     });
@@ -429,208 +662,176 @@ function drawSankey() {
   const ribbons = [];
   flows.forEach((v, key) => {
     const [a, b] = key.split('>');
-    const target = EXITS.includes(b) ? b + '@' + a : b;
-    if (pos[a] && pos[target]) ribbons.push({ a, target, b, v });
+    const t = (CLOSED_STAGES.includes(b) && b !== 'accepted') ? b + '@' + a : b;
+    if (pos[a] && pos[t]) ribbons.push({ a, t, b, v });
   });
-  ribbons.sort((x, y) => nodes[x.target].col - nodes[y.target].col || y.v - x.v);
+  ribbons.sort((x, y) => nodes[x.t].col - nodes[y.t].col || y.v - x.v);
 
   let out = '';
   ribbons.forEach(f => {
-    const s = pos[f.a], t = pos[f.target];
-    const th = Math.max(2, f.v * unit);
+    const s = pos[f.a], t = pos[f.t], th = Math.max(2, f.v * unit);
     const y0 = s.outY, y1 = t.inY;
     s.outY += th; t.inY += th;
     const x0 = s.x + colW, x1 = t.x, mx = (x0 + x1) / 2;
-    const d = `M${x0},${y0} C${mx},${y0} ${mx},${y1} ${x1},${y1} `
-            + `L${x1},${y1 + th} C${mx},${y1 + th} ${mx},${y0 + th} ${x0},${y0 + th} Z`;
-    out += `<path class="sk-flow" d="${d}" fill="var(${stageVar(f.a)})" opacity=".38"`
-        + ` data-tip="${stageLabel(f.a)} &rarr; ${stageLabel(f.b)}: ${f.v}"></path>`;
+    out += `<path class="sk-flow" opacity=".4" fill="var(${cvar(f.a)})"`
+      + ` d="M${x0},${y0} C${mx},${y0} ${mx},${y1} ${x1},${y1} L${x1},${y1 + th}`
+      + ` C${mx},${y1 + th} ${mx},${y0 + th} ${x0},${y0 + th} Z"`
+      + ` data-tip="${label(f.a)} &rarr; ${label(f.b)}: ${f.v}"></path>`;
   });
-
   Object.entries(pos).forEach(([id, p]) => {
     const n = nodes[id];
-    out += `<rect class="sk-node" x="${p.x}" y="${p.y}" width="${colW}" height="${p.h}"`
-        + ` rx="3" fill="var(${stageVar(n.stage)})"`
-        + ` data-tip="${stageLabel(n.stage)}: ${n.v}"></rect>`;
-    const ty = p.y + p.h / 2;
-    out += `<text class="sk-val" x="${p.x + colW + 8}" y="${ty - 1}">${n.v}</text>`
-        + `<text class="sk-lab" x="${p.x + colW + 8}" y="${ty + 12}">${stageLabel(n.stage)}</text>`;
+    out += `<rect class="sk-node" x="${p.x}" y="${p.y}" width="${colW}" height="${p.h}" rx="3"`
+      + ` fill="var(${cvar(n.stage)})" data-tip="${label(n.stage)}: ${n.v}"></rect>`
+      + `<text class="sk-val" x="${p.x + colW + 9}" y="${p.y + p.h / 2 - 1}">${n.v}</text>`
+      + `<text class="sk-lab" x="${p.x + colW + 9}" y="${p.y + p.h / 2 + 13}">${label(n.stage)}</text>`;
   });
-
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('height', H);
   svg.innerHTML = out;
 }
 
-/* ---------------------------------------------------------------- apply */
+const fbox = $('#flowbox');
+$('#sankey').addEventListener('mouseover', e => {
+  const el = e.target.closest('[data-tip]'); if (!el) return;
+  fbox.classList.add('dim'); el.classList.add('hot');
+  tip.innerHTML = el.dataset.tip; tip.classList.remove('hidden');
+});
+$('#sankey').addEventListener('mousemove', e => {
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 10) + 'px';
+  tip.style.top = (e.clientY + 16) + 'px';
+});
+$('#sankey').addEventListener('mouseout', e => {
+  const el = e.target.closest('[data-tip]'); if (el) el.classList.remove('hot');
+  fbox.classList.remove('dim'); tip.classList.add('hidden');
+});
 
-function apply() {
-  let n = 0;
-  cards.forEach(card => {
-    const show = passes(card, null);
-    card.classList.toggle('hidden', !show);
-    if (show) n++;
-  });
-  const vis = cards.filter(c => !c.classList.contains('hidden'));
-  document.getElementById('stRoles').textContent = vis.length;
-  document.getElementById('stNew').textContent = vis.filter(c => c.dataset.new === '1').length;
-  document.getElementById('stCompanies').textContent = new Set(vis.map(c => c.dataset.company)).size;
-  document.getElementById('stGhost').textContent = vis.filter(c => c.dataset.ghost === '1').length;
-  shown.textContent = n + ' / ' + cards.length + ' shown';
-  noMatch.classList.toggle('hidden', n !== 0);
+/* ----------------------------------------------------------------- views */
 
-  const counts = {};
-  STAGES.forEach(([k]) => counts[k] = 0);
-  cards.filter(c => passes(c, 'status')).forEach(c => counts[statusOf(c)]++);
-  document.querySelectorAll('.stg').forEach(el => {
-    const k = el.dataset.stage;
-    el.querySelector('.n').textContent = counts[k] || 0;
-    el.classList.toggle('on', facets.status.has(k));
-  });
-  document.getElementById('stPipeline').textContent =
-    Object.entries(counts).filter(([k]) => k !== 'none' && k !== 'rejected' && k !== 'ghosted')
-      .reduce((a, [, v]) => a + v, 0);
-
-  syncFacetButtons();
-  drawSankey();
+function showTab(name) {
+  $$('.tab').forEach(t => t.classList.toggle('on', t.dataset.view === name));
+  $('#viewBoard').classList.toggle('hidden', name !== 'board');
+  $('#viewFlow').classList.toggle('hidden', name !== 'flow');
+  $('#listpane').classList.toggle('hidden', name === 'flow');
+  if (name === 'flow') requestAnimationFrame(drawSankey);
   saveView();
 }
+$$('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.view)));
 
-function sortGrid() {
-  const m = sortSel.value;
-  cards.slice().sort((a, b) => {
-    if (m === 'company') return a.dataset.comp.localeCompare(b.dataset.comp) || b.dataset.score - a.dataset.score;
-    if (m === 'new') return (b.dataset.new - a.dataset.new) || b.dataset.score - a.dataset.score;
-    if (m === 'age') return (a.dataset.days - b.dataset.days) || b.dataset.score - a.dataset.score;
-    return (b.dataset.score - a.dataset.score) || a.dataset.comp.localeCompare(b.dataset.comp);
-  }).forEach(c => grid.appendChild(c));
+/* ---------------------------------------------------------------- render */
+
+function render() {
+  let n = 0;
+  rows.forEach(r => {
+    const show = passes(r, null);
+    r.classList.toggle('hidden', !show);
+    if (show) n++;
+    const st = stage(r.dataset.id);
+    r.classList.toggle('tracked', st !== 'none');
+    const dot = r.querySelector('.stagedot');
+    if (st === 'none') { if (dot) dot.remove(); }
+    else {
+      const d = dot || Object.assign(document.createElement('span'), { className: 'stagedot' });
+      d.style.color = `var(${cvar(st)})`;
+      d.style.background = 'currentColor';
+      d.title = label(st);
+      if (!dot) r.querySelector('.rt').appendChild(d);
+    }
+  });
+  $('#shown').textContent = n;
+  $('#emptyList').classList.toggle('hidden', n !== 0);
+  const tracked = Object.keys(APPS).filter(id => JOBS[id] && stage(id) !== 'none');
+  $('#kTracked').textContent = tracked.length;
+  $$('.fdd').forEach(dd => {
+    const fields = dd.dataset.facet ? [dd.dataset.facet] : JSON.parse(dd.dataset.fields || '[]');
+    const c = fields.reduce((a, f) => a + facets[f].size, 0);
+    const b = dd.querySelector('.fbtn');
+    b.classList.toggle('on', c > 0);
+    const badge = b.querySelector('.n');
+    if (badge) { badge.textContent = c; badge.classList.toggle('hidden', !c); }
+  });
+  renderBoard();
+  if (!$('#viewFlow').classList.contains('hidden')) drawSankey();
+  saveView();
 }
 
 /* ------------------------------------------------------------ view state */
 
 function saveView() {
-  const v = { q: q.value, sort: sortSel.value, newOnly, freshOnly, ghostOnly, f: {} };
-  for (const k in facets) if (facets[k].size) v.f[k] = [...facets[k]];
-  localStorage.setItem(VIEWKEY, JSON.stringify(v));
-  const hash = new URLSearchParams();
-  if (v.q) hash.set('q', v.q);
-  if (v.sort !== 'score') hash.set('sort', v.sort);
-  if (!freshOnly) hash.set('fresh', '0');
-  if (newOnly) hash.set('new', '1');
-  if (ghostOnly) hash.set('ghost', '1');
-  for (const k in v.f) hash.set(k, v.f[k].join('~'));
-  const s = hash.toString();
+  const p = new URLSearchParams();
+  if (q.value) p.set('q', q.value);
+  if (sortKey !== 'score' || sortDir !== -1) p.set('sort', sortKey + (sortDir === 1 ? '.a' : ''));
+  if (!freshOnly) p.set('fresh', '0');
+  if (newOnly) p.set('new', '1');
+  if (ghostOnly) p.set('ghost', '1');
+  if (!$('#viewFlow').classList.contains('hidden')) p.set('view', 'flow');
+  for (const f in facets) if (facets[f].size) p.set(f, [...facets[f]].join('~'));
+  const s = p.toString();
   history.replaceState(null, '', s ? '#' + s : location.pathname);
+  localStorage.setItem(VIEWKEY, s);
 }
 
 function loadView() {
-  let v = null;
-  if (location.hash.length > 1) {
-    const p = new URLSearchParams(location.hash.slice(1));
-    v = { q: p.get('q') || '', sort: p.get('sort') || 'score', newOnly: p.get('new') === '1',
-          ghostOnly: p.get('ghost') === '1', freshOnly: p.get('fresh') !== '0', f: {} };
-    for (const k in facets) if (p.get(k)) v.f[k] = p.get(k).split('~');
-  } else {
-    try { v = JSON.parse(localStorage.getItem(VIEWKEY) || 'null'); } catch (e) { v = null; }
+  const raw = location.hash.length > 1 ? location.hash.slice(1)
+                                       : (localStorage.getItem(VIEWKEY) || '');
+  if (!raw) return null;
+  const p = new URLSearchParams(raw);
+  q.value = p.get('q') || '';
+  if (p.get('sort')) {
+    const [k, a] = p.get('sort').split('.');
+    sortKey = k; sortDir = a === 'a' ? 1 : -1;
   }
-  if (!v) return;
-  q.value = v.q || '';
-  sortSel.value = v.sort || 'score';
-  newOnly = !!v.newOnly; ghostOnly = !!v.ghostOnly;
-  freshOnly = v.freshOnly !== false;
-  for (const k in (v.f || {})) if (facets[k]) v.f[k].forEach(x => facets[k].add(x));
-  document.getElementById('newBtn').classList.toggle('on', newOnly);
-  document.getElementById('ghostBtn').classList.toggle('on', ghostOnly);
-  document.getElementById('freshBtn').classList.toggle('on', freshOnly);
+  freshOnly = p.get('fresh') !== '0';
+  newOnly = p.get('new') === '1';
+  ghostOnly = p.get('ghost') === '1';
+  for (const f in facets) if (p.get(f)) p.get(f).split('~').forEach(v => facets[f].add(v));
+  return p.get('view');
 }
 
-/* -------------------------------------------------------------- wiring */
+/* ---------------------------------------------------------------- wiring */
 
-q.addEventListener('input', apply);
-sortSel.addEventListener('change', () => { sortGrid(); saveView(); });
-document.getElementById('newBtn').addEventListener('click', e => {
-  newOnly = !newOnly; e.target.classList.toggle('on', newOnly); apply();
+q.addEventListener('input', render);
+$('#freshBtn').addEventListener('click', e => {
+  freshOnly = !freshOnly; e.target.classList.toggle('on', freshOnly); render();
 });
-document.getElementById('freshBtn').addEventListener('click', e => {
-  freshOnly = !freshOnly; e.target.classList.toggle('on', freshOnly); apply();
+$('#newBtn').addEventListener('click', e => {
+  newOnly = !newOnly; e.target.classList.toggle('on', newOnly); render();
 });
-document.getElementById('ghostBtn').addEventListener('click', e => {
-  ghostOnly = !ghostOnly; e.target.classList.toggle('on', ghostOnly); apply();
+$('#ghostBtn').addEventListener('click', e => {
+  ghostOnly = !ghostOnly; e.target.classList.toggle('on', ghostOnly); render();
 });
-document.getElementById('clrBtn').addEventListener('click', () => {
+$('#clrBtn').addEventListener('click', () => {
   for (const f in facets) facets[f].clear();
   newOnly = ghostOnly = false; freshOnly = false;
-  ['newBtn', 'ghostBtn', 'freshBtn'].forEach(id => document.getElementById(id).classList.remove('on'));
-  q.value = ''; apply();
+  ['freshBtn', 'newBtn', 'ghostBtn'].forEach(i => $('#' + i).classList.remove('on'));
+  q.value = ''; render();
 });
-document.querySelectorAll('.stg').forEach(el => el.addEventListener('click', () => {
-  const k = el.dataset.stage;
-  if (facets.status.has(k)) facets.status.delete(k); else facets.status.add(k);
-  apply();
-}));
-document.getElementById('expBtn').addEventListener('click', () => {
+$('#expBtn').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(APPS, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'applications.json'; a.click();
   URL.revokeObjectURL(a.href);
 });
-
-grid.addEventListener('change', e => {
-  const card = e.target.closest('.card'); if (!card) return;
-  if (e.target.classList.contains('stsel')) { setStatus(card, e.target.value, true); saveApps(); apply(); }
-  if (e.target.classList.contains('napp')) { entry(card.dataset.id).applied_date = e.target.value; saveApps(); }
+$('.lhead').addEventListener('click', e => {
+  const s = e.target.closest('[data-sort]'); if (!s) return;
+  const k = s.dataset.sort;
+  if (sortKey === k) sortDir = -sortDir;
+  else { sortKey = k; sortDir = (k === 'title' || k === 'company' || k === 'location') ? 1 : -1; }
+  $$('.lhead span').forEach(x => x.classList.toggle('sorted', x.dataset.sort === sortKey));
+  sortRows(); saveView();
 });
-grid.addEventListener('input', e => {
-  if (!e.target.classList.contains('ntext')) return;
-  const card = e.target.closest('.card');
-  entry(card.dataset.id).note = e.target.value;
-  card.querySelector('.notebtn').classList.toggle('has', !!e.target.value.trim());
-  saveApps();
+addEventListener('resize', () => {
+  if (!$('#viewFlow').classList.contains('hidden')) drawSankey();
 });
-grid.addEventListener('click', e => {
-  const btn = e.target.closest('.notebtn'); if (!btn) return;
-  btn.closest('.card').querySelector('.notewrap').classList.toggle('hidden');
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeMenus(); tip.classList.add('hidden'); }
+  if (e.key === '/' && e.target !== q) { e.preventDefault(); q.focus(); }
 });
 
-const pipe = document.querySelector('.pipe');
-document.getElementById('sankey').addEventListener('mouseover', e => {
-  const el = e.target.closest('[data-tip]'); if (!el) return;
-  pipe.classList.add('dim'); el.classList.add('hot');
-  tip.innerHTML = el.dataset.tip; tip.classList.remove('hidden');
-});
-document.getElementById('sankey').addEventListener('mousemove', e => {
-  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px';
-  tip.style.top = (e.clientY + 16) + 'px';
-});
-document.getElementById('sankey').addEventListener('mouseout', e => {
-  const el = e.target.closest('[data-tip]'); if (el) el.classList.remove('hot');
-  pipe.classList.remove('dim'); tip.classList.add('hidden');
-});
-document.getElementById('pipeToggle').addEventListener('click', e => {
-  const body = document.getElementById('pipeBody');
-  body.classList.toggle('hidden');
-  e.target.textContent = body.classList.contains('hidden') ? 'Show' : 'Hide';
-});
-document.getElementById('pipeScope').addEventListener('click', e => {
-  pipeAll = !pipeAll;
-  e.target.textContent = pipeAll ? 'All applications' : 'Current filter';
-  document.getElementById('pipeSub').textContent = pipeAll
-    ? 'every role you have tracked, ignoring filters'
-    : 'only roles matching the filters above';
-  drawSankey();
-});
-addEventListener('resize', drawSankey);
-
-cards.forEach(c => {
-  const e = APPS[c.dataset.id];
-  if (e && e.status && e.status !== 'none') setStatus(c, e.status, false);
-  if (e && e.note) {
-    c.querySelector('.ntext').value = e.note;
-    c.querySelector('.notebtn').classList.add('has');
-  }
-  if (e && e.applied_date) c.querySelector('.napp').value = e.applied_date;
-});
-loadView();
-sortGrid();
-apply();
+const view = loadView();
+$('#freshBtn').classList.toggle('on', freshOnly);
+$('#newBtn').classList.toggle('on', newOnly);
+$('#ghostBtn').classList.toggle('on', ghostOnly);
+$$('.lhead span').forEach(x => x.classList.toggle('sorted', x.dataset.sort === sortKey));
+sortRows();
+showTab(view === 'flow' ? 'flow' : 'board');
+render();
 """
