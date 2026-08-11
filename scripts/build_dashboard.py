@@ -1,19 +1,22 @@
 """Build a browsable HTML web app for a run and open it in the browser.
 
-Reads runs/<DATE>/_run.json and renders:
-  - a stats header (roles, new, companies, non-US hidden, failed boards)
-  - a FACETS bar: location type, US state, role category, seniority level, source
-  - a responsive GRID of role cards (score, title, company, location, Apply)
-  - a live search box + "new only" toggle (vanilla JS, no deps)
-  - companies that searched OK but matched nothing, collapsed, at the bottom
-  - failed boards at the very bottom with the failure reason + a careers link
+Reads runs/<DATE>/_run.json and renders a single self-contained page:
+  - a stats header + a clickable STAGE STRIP (the application funnel)
+  - a PIPELINE panel: a Sankey of how roles have moved between stages
+  - a FILTER BAR of searchable multi-select dropdowns (one row, any facet)
+  - a responsive GRID of role cards with per-card stage, note and applied date
+  - companies that searched OK but matched nothing, then failed boards
 
 Non-US roles are dropped from the grid (the search is USA-only); the count is
-shown in the header so nothing silently disappears.
+shown in the header so nothing silently disappears. Roles that are the same
+title at the same company are merged into one card carrying every location.
+
+CSS and JS live in dashboard_assets.py and are inlined verbatim — no build
+step, no CDN, no network access required to open the result.
 
 Usage:
     python scripts/build_dashboard.py            # latest run
-    python scripts/build_dashboard.py 2026-06-24 # a specific date
+    python scripts/build_dashboard.py 2026-08-10 # a specific date
     python scripts/build_dashboard.py --no-open  # build but don't open
 """
 import datetime as dt
@@ -25,6 +28,7 @@ import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dashboard_assets import CSS, JS  # noqa: E402
 from filter import classify_location  # noqa: E402
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -36,7 +40,22 @@ SOURCE_NAME = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
                "smartrecruiters": "SmartRecruiters", "recruitee": "Recruitee"}
 SENIOR_LEVELS = {"senior", "staff", "principal", "lead", "manager", "director", "vp", "head"}
 LEVEL_ORDER = ["intern", "junior", "associate", "entry", "senior", "lead",
-               "staff", "principal", "manager", "director", "vp", "head"]
+               "staff", "principal", "manager", "director", "vp", "head", "none"]
+
+# The application funnel: (key, label, css var). Order is the funnel order and
+# drives both the stage strip and the Sankey's column layout.
+STAGES = [
+    ("none", "Not applied", "--st-none"),
+    ("applied", "Applied", "--st-applied"),
+    ("screening", "Screening", "--st-screening"),
+    ("interview", "Interview", "--st-interview"),
+    ("offer", "Offer", "--st-offer"),
+    ("accepted", "Accepted", "--st-accepted"),
+    ("rejected", "Rejected", "--st-rejected"),
+    ("ghosted", "No response", "--st-ghosted"),
+]
+PROGRESSION = ["none", "applied", "screening", "interview", "offer", "accepted"]
+EXITS = ["rejected", "ghosted"]
 
 # Title -> category. First match wins; order matters (specific before generic).
 CATEGORIES = [
@@ -66,11 +85,20 @@ TYPE_LABEL = {"remote": "Remote", "hybrid": "Hybrid", "onsite": "On-site",
               "unspecified": "Unspecified"}
 AGE_LABEL = {"7d": "Last 7 days", "30d": "8–30 days", "90d": "31–90 days",
              "old": "90+ days", "na": "Unknown"}
-# Buckets the "Fresh only" toggle hides. Unknown-age roles are never hidden.
 STALE_BUCKETS = ("90d", "old")
 YOE_LABEL = {"0-2": "0–2 yrs", "3-5": "3–5 yrs", "6-8": "6–8 yrs",
              "9+": "9+ yrs", "na": "Unstated"}
+SAL_LABEL = {"1": "Listed", "0": "Not listed"}
 STALE_DAYS = 60
+# A req we have personally watched stay open this long, or one that has been
+# torn down and relisted, is very likely evergreen rather than a live opening.
+GHOST_OPEN_DAYS = 45
+
+FACETS = [
+    ("status", "Stage"), ("type", "Type"), ("cat", "Category"), ("level", "Level"),
+    ("yoe", "Experience"), ("age", "Posted"), ("sal", "Salary"), ("state", "State"),
+    ("src", "Source"), ("company", "Company"),
+]
 
 
 def esc(s):
@@ -79,6 +107,10 @@ def esc(s):
 
 def slug(s):
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+
+
+def norm_title(t):
+    return re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
 
 
 def categorize(title):
@@ -110,6 +142,7 @@ def enrich(j, source, run_date):
     yoe = j.get("yoe")
     j["_yoebucket"] = ("na" if not yoe else "0-2" if yoe <= 2 else
                        "3-5" if yoe <= 5 else "6-8" if yoe <= 8 else "9+")
+    j["_ghost"] = bool(j.get("reposted")) or (j.get("open_days") or 0) >= GHOST_OPEN_DAYS
     if states:
         j["_region"] = ", ".join(states)
     elif loc_type in ("remote", "unspecified"):
@@ -119,21 +152,57 @@ def enrich(j, source, run_date):
     return j
 
 
-def state_tokens(j):
-    # Real US states only. Remote-ness is the Type facet's job, so a stateless
-    # remote role simply has no state chip (avoids the Remote vs Remote/US clash).
-    return j["_states"]
+def merge_duplicates(jobs):
+    """Collapse the same role posted once per location into a single card.
+
+    Keyed on company + normalised title, so "Security Engineer" opened for
+    Austin, NYC and Remote becomes one card carrying all three locations and
+    the union of their states. The highest-scoring posting wins as the primary
+    (its URL is the one Apply points at).
+    """
+    groups = {}
+    for j in jobs:
+        groups.setdefault((slug(j["comp"]), norm_title(j["title"])), []).append(j)
+    out, merged = [], 0
+    for g in groups.values():
+        g.sort(key=lambda j: (-j["score"], j.get("_age") if j.get("_age") is not None else 999))
+        primary = g[0]
+        if len(g) > 1:
+            merged += len(g) - 1
+            locs, states = [], []
+            for j in g:
+                if j["_region"] and j["_region"] not in locs:
+                    locs.append(j["_region"])
+                for s in j["_states"]:
+                    if s not in states:
+                        states.append(s)
+            primary["_dupes"] = len(g)
+            primary["_locs"] = locs
+            primary["_states"] = states
+            primary["_ghost"] = primary["_ghost"] or any(j["_ghost"] for j in g)
+        out.append(primary)
+    return out, merged
 
 
 def card(j):
     color = TIER_COLOR.get(j["tier"], "#6b7280")
     lvl = j.get("level", "")
-    lvlchip = f'<span class="chip lvl">{esc(lvl)}</span>' if lvl in SENIOR_LEVELS else ""
-    chips = lvlchip + "".join(
-        f'<span class="chip">{esc(m)}</span>' for m in j.get("matched", [])[:4])
-    newbadge = '<span class="new">NEW</span>' if j.get("new") else ""
-    comp = j.get("comp") or ""
-    type_pill = f'<span class="tpill t-{j["_type"]}">{TYPE_LABEL[j["_type"]]}</span>'
+    chips = ""
+    if j.get("yoe"):
+        chips += f'<span class="chip yoe">{j["yoe"]}+ yrs</span>'
+    if lvl in SENIOR_LEVELS:
+        chips += f'<span class="chip lvl">{esc(lvl)}</span>'
+    if j.get("_dupes"):
+        chips += f'<span class="chip loc">{j["_dupes"]} locations</span>'
+    chips += "".join(f'<span class="chip">{esc(m)}</span>' for m in j.get("matched", [])[:3])
+
+    badges = '<span class="new">NEW</span>' if j.get("new") else ""
+    if j["_ghost"]:
+        why = (f'relisted under {j["reposted"] + 1} posting ids'
+               if j.get("reposted") else
+               f'open at least {j.get("open_days", 0)} days')
+        badges += f'<span class="ghost" title="Possible evergreen/ghost req: {esc(why)}">GHOST?</span>'
+
     age = j["_age"]
     if age is None:
         age_txt = ""
@@ -141,371 +210,149 @@ def card(j):
         age_txt = f' <span class="age stale">· {age}d ago</span>'
     else:
         age_txt = f' <span class="age">· {"today" if age <= 0 else str(age) + "d ago"}</span>'
+
     salary = j.get("salary") or ""
     sal_line = f'<div class="sal">{esc(salary)}</div>' if salary else ""
-    yoe = j.get("yoe")
-    yoe_chip = f'<span class="chip yoe">{yoe}+ yrs</span>' if yoe else ""
+    region = ", ".join(j["_locs"][:3]) if j.get("_locs") else j["_region"]
+    comp = j.get("comp") or ""
     search = esc((j["title"] + " " + comp + " " + j.get("location", "")).lower())
+    opts = "".join(f'<option value="{k}">{esc(lab)}</option>' for k, lab, _ in STAGES)
     return f"""  <div class="card" data-id="{esc(j['id'])}" data-search="{search}" data-new="{int(bool(j.get('new')))}"
        data-type="{j['_type']}" data-level="{esc(lvl) or 'none'}" data-cat="{slug(j['_cat'])}"
-       data-src="{j['_src']}" data-state="{' '.join(state_tokens(j))}"
+       data-src="{j['_src']}" data-state="{' '.join(j['_states'])}"
        data-age="{j['_agebucket']}" data-sal="{int(bool(salary))}" data-yoe="{j['_yoebucket']}"
+       data-ghost="{int(j['_ghost'])}" data-days="{age if age is not None else 9999}"
        data-status="none" data-company="{slug(comp)}" data-comp="{esc(comp.lower())}"
        data-title="{esc(j['title'])}" data-url="{esc(j['url'])}" data-score="{j['score']}">
     <div class="ctop">
       <span class="sc" style="color:{color};border-color:{color}">{j['score']}</span>
-      {type_pill}{newbadge}
+      <span class="tpill t-{j['_type']}">{TYPE_LABEL[j['_type']]}</span>{badges}
     </div>
     <a class="jt" href="{esc(j['url'])}" target="_blank" rel="noopener">{esc(j['title'])}</a>
-    <div class="cco">{comp}</div>
-    <div class="cloc">{esc(j['_region'])}{age_txt}</div>
-    {sal_line}<div class="chips">{yoe_chip}{chips}</div>
+    <div class="cco">{esc(comp)}</div>
+    <div class="cloc">{esc(region)}{age_txt}</div>
+    {sal_line}<div class="chips">{chips}</div>
     <a class="apply" href="{esc(j['url'])}" target="_blank" rel="noopener">Apply &rarr;</a>
-    <select class="stsel">
-      <option value="none">&mdash; not applied</option>
-      <option value="applied">&#10003; Applied</option>
-      <option value="interviewing">&#9670; Interviewing</option>
-      <option value="rejected">&#10007; Rejected</option>
-    </select>
+    <div class="crow">
+      <select class="stsel">{opts}</select>
+      <button class="notebtn" title="Note and applied date">&#9998;</button>
+    </div>
+    <div class="notewrap hidden">
+      <textarea class="ntext" placeholder="Notes — recruiter, referral, follow-up date…"></textarea>
+      <input class="napp" type="date" title="Date applied">
+    </div>
   </div>"""
 
 
-def facet_group(field, title, options):
-    """options: list of (value, label, count)."""
-    chips = "\n".join(
-        f'    <button class="fchip" data-facet="{field}" data-val="{esc(v)}">'
-        f'{esc(label)} <span class="fct">{count}</span></button>'
-        for v, label, count in options if count)
-    return f"""  <div class="fgroup">
-    <span class="flabel">{esc(title)}</span>
-{chips}
-  </div>"""
+def dropdown(field, label, options, order, labels):
+    """One searchable multi-select facet. Options are re-rendered by JS on open,
+    so the markup only needs the shell plus the ordering/label metadata."""
+    return f"""    <div class="fdd" data-facet="{field}"
+         data-order='{html.escape(json.dumps(order), quote=True)}'
+         data-labels='{html.escape(json.dumps(labels), quote=True)}'>
+      <button class="fddbtn">{esc(label)}<span class="cnt hidden">0</span><span class="car">&#9662;</span></button>
+      <div class="fddmenu hidden">
+        <input class="fddsearch" placeholder="Search {esc(label.lower())}&hellip;" autocomplete="off">
+        <div class="fddlist"></div>
+        <div class="fddfoot"><button class="fdd-all">Select all</button>
+          <button class="fdd-none">Clear</button></div>
+      </div>
+    </div>"""
 
 
-def build_facets(jobs):
-    def counts(keyfn):
-        c = {}
-        for j in jobs:
-            for v in keyfn(j):
-                c[v] = c.get(v, 0) + 1
-        return c
+def build_filterbar(jobs):
+    cnames = {slug(j["comp"]): j["comp"] for j in jobs if j.get("comp")}
+    meta = {
+        "status": ([k for k, _, _ in STAGES], {k: lab for k, lab, _ in STAGES}),
+        "type": (["remote", "hybrid", "onsite", "unspecified"], TYPE_LABEL),
+        "cat": ([], {slug(c): c for c, _ in CATEGORIES} | {"other": "Other"}),
+        "level": (LEVEL_ORDER, {lv: lv.capitalize() for lv in LEVEL_ORDER} | {"none": "Unspecified"}),
+        "yoe": (list(YOE_LABEL), YOE_LABEL),
+        "age": (list(AGE_LABEL), AGE_LABEL),
+        "sal": (["1", "0"], SAL_LABEL),
+        "state": ([], {}),
+        "src": ([], SOURCE_NAME),
+        "company": ([], cnames),
+    }
+    return "\n".join(dropdown(f, lab, None, *meta[f]) for f, lab in FACETS)
 
-    types = counts(lambda j: [j["_type"]])
-    type_opts = [(t, TYPE_LABEL[t], types.get(t, 0))
-                 for t in ("remote", "hybrid", "onsite", "unspecified")]
 
-    states = counts(state_tokens)
-    state_opts = sorted(((s, s, n) for s, n in states.items()),
-                        key=lambda o: (-o[2], o[0]))
-
-    cats = counts(lambda j: [j["_cat"]])
-    cat_opts = sorted(((slug(c), c, n) for c, n in cats.items()),
-                      key=lambda o: (-o[2], o[1]))
-
-    levels = counts(lambda j: [j.get("level") or "none"])
-    order = LEVEL_ORDER + ["none"]
-    level_opts = [(lv, "Unspecified" if lv == "none" else lv.capitalize(), levels.get(lv, 0))
-                  for lv in order if levels.get(lv)]
-
-    srcs = counts(lambda j: [j["_src"]])
-    src_opts = sorted(((s, SOURCE_NAME.get(s, s.title()), n) for s, n in srcs.items()),
-                      key=lambda o: (-o[2], o[1]))
-
-    ages = counts(lambda j: [j["_agebucket"]])
-    age_opts = [(a, AGE_LABEL[a], ages.get(a, 0)) for a in AGE_LABEL]
-
-    yoes = counts(lambda j: [j["_yoebucket"]])
-    yoe_opts = [(y, YOE_LABEL[y], yoes.get(y, 0)) for y in YOE_LABEL]
-
-    sals = counts(lambda j: [str(int(bool(j.get("salary"))))])
-    sal_opts = [("1", "Listed", sals.get("1", 0)), ("0", "Not listed", sals.get("0", 0))]
-
-    return "\n".join([
-        facet_group("type", "Type", type_opts),
-        facet_group("cat", "Category", cat_opts),
-        facet_group("level", "Level", level_opts),
-        facet_group("yoe", "Experience", yoe_opts),
-        facet_group("age", "Posted", age_opts),
-        facet_group("sal", "Salary", sal_opts),
-        facet_group("state", "State", state_opts),
-        facet_group("src", "Source", src_opts),
-    ])
+def build_stage_strip():
+    return "\n".join(
+        f'    <div class="stg" data-stage="{k}" style="color:var({var})">'
+        f'<span class="dot"></span><span class="n">0</span>'
+        f'<span class="lbl">{esc(lab)}</span></div>'
+        for k, lab, var in STAGES)
 
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Job Hunt — {date}</title>
-<style>
-  :root {{ color-scheme: dark; }}
-  * {{ box-sizing: border-box; }}
-  body {{ font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0;
-          background: #0f1115; color: #e6e8ec; }}
-  header {{ padding: 18px 28px 12px; border-bottom: 1px solid #23262d;
-           position: sticky; top: 0; background: #0f1115ee; backdrop-filter: blur(8px); z-index: 20; }}
-  h1 {{ margin: 0 0 8px; font-size: 19px; }}
-  .stats {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }}
-  .stat {{ background: #161922; border: 1px solid #23262d; border-radius: 8px;
-           padding: 5px 11px; font-size: 13px; }}
-  .stat b {{ font-size: 15px; }}
-  .stat.clickable {{ cursor: pointer; user-select: none; }}
-  .stat.clickable:hover {{ border-color: #3a4150; }}
-  .stat.clickable.open {{ background: #1d2433; border-color: #2563eb; }}
-  .cpanel {{ display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px;
-             max-height: 30vh; overflow: auto; padding: 10px; background: #0d0f13;
-             border: 1px solid #23262d; border-radius: 10px; }}
-  .tools {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
-  #q {{ flex: 1; min-width: 220px; background: #161922; border: 1px solid #2c313c;
-        color: #e6e8ec; border-radius: 8px; padding: 9px 12px; font-size: 14px; }}
-  .tbtn {{ background: #1e222b; border: 1px solid #2c313c; color: #cfd3da;
-           border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer; }}
-  .tbtn.on {{ background: #2563eb; color: #fff; border-color: #2563eb; }}
-  #shown {{ color: #9aa0aa; font-size: 13px; margin-left: 2px; }}
-  .facets {{ display: flex; flex-direction: column; gap: 7px; padding: 12px 28px;
-             border-bottom: 1px solid #23262d; background: #0d0f13;
-             position: sticky; top: 0; z-index: 10; max-height: 38vh; overflow: auto; }}
-  .fgroup {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
-  .flabel {{ color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
-             width: 74px; flex-shrink: 0; }}
-  .fchip {{ background: #161922; border: 1px solid #2c313c; color: #cfd3da; cursor: pointer;
-            border-radius: 14px; padding: 4px 10px; font-size: 12px; }}
-  .fchip:hover {{ border-color: #3a4150; }}
-  .fchip.on {{ background: #2563eb; color: #fff; border-color: #2563eb; }}
-  .fct {{ opacity: .6; font-size: 11px; }}
-  .wrap {{ padding: 18px 28px 70px; max-width: 1400px; margin: 0 auto; }}
-  .grid {{ display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }}
-  .card {{ background: #161922; border: 1px solid #23262d; border-radius: 12px; padding: 14px;
-           display: flex; flex-direction: column; gap: 6px; }}
-  .card:hover {{ border-color: #313742; }}
-  .ctop {{ display: flex; align-items: center; gap: 8px; }}
-  .sc {{ border: 1px solid; border-radius: 6px; padding: 2px 0; width: 40px; text-align: center;
-         font-weight: 700; font-size: 14px; }}
-  .tpill {{ font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }}
-  .t-remote {{ background: #14302a; color: #5bd6ac; }}
-  .t-hybrid {{ background: #2c2a16; color: #e0c061; }}
-  .t-onsite {{ background: #1c2333; color: #8fb3ff; }}
-  .t-unspecified {{ background: #20242e; color: #9aa0aa; }}
-  .jt {{ color: #e6e8ec; font-size: 15px; font-weight: 600; text-decoration: none; line-height: 1.3; }}
-  .jt:hover {{ color: #6ea8fe; }}
-  .new {{ background: #18351f; color: #51d88a; font-size: 9px; font-weight: 700;
-          padding: 1px 6px; border-radius: 10px; }}
-  .cco {{ color: #cfd3da; font-size: 13px; font-weight: 500; }}
-  .cloc {{ color: #9aa0aa; font-size: 12px; }}
-  .age {{ color: #8b90a0; }}
-  .age.stale {{ color: #d9a15f; }}
-  .sal {{ color: #7ec9a3; font-size: 12px; font-weight: 600; }}
-  .chips {{ display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }}
-  .chip {{ background: #20242e; color: #aab0bc; font-size: 10px; padding: 1px 7px; border-radius: 10px; }}
-  .chip.lvl {{ background: #2a2a40; color: #bfc4ff; text-transform: capitalize; }}
-  .chip.yoe {{ background: #33262a; color: #e0a2ac; }}
-  a.apply {{ background: #2563eb; color: #fff; text-decoration: none; font-size: 13px;
-             font-weight: 600; padding: 8px 0; border-radius: 8px; text-align: center; margin-top: 4px; }}
-  .stsel {{ background: #12151c; border: 1px solid #2c313c; color: #9aa0aa; border-radius: 7px;
-            padding: 5px 8px; font-size: 11px; width: 100%; cursor: pointer; }}
-  .card[data-status="applied"] {{ border-color: #2f6b4a; }}
-  .card[data-status="applied"] .stsel {{ color: #5bd6ac; border-color: #2f6b4a; }}
-  .card[data-status="interviewing"] {{ border-color: #8a6d1f; box-shadow: 0 0 0 1px #8a6d1f33; }}
-  .card[data-status="interviewing"] .stsel {{ color: #e0c061; border-color: #8a6d1f; }}
-  .card[data-status="rejected"] {{ opacity: .45; }}
-  .card[data-status="rejected"] .stsel {{ color: #d98f8f; }}
-  .nomatch {{ color: #9aa0aa; padding: 30px 0; text-align: center; }}
-  .section-h {{ color: #9aa0aa; font-size: 13px; font-weight: 600; text-transform: uppercase;
-                letter-spacing: .6px; margin: 30px 0 12px; }}
-  .empty-co, .failed-co {{ display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-            background: #14161d; border: 1px solid #23262d; border-radius: 9px; margin-bottom: 8px;
-            font-size: 13px; }}
-  .failed-co {{ border-color: #3a2526; }}
-  .failed-co .why {{ color: #d98f8f; }}
-  .src {{ color: #8b90a0; font-size: 11px; }}
-  .failed-co a, .empty-co a {{ margin-left: auto; color: #6ea8fe; text-decoration: none; font-size: 12px; }}
-  .coname-sm {{ font-weight: 600; }}
-  footer {{ color: #6b7280; font-size: 12px; padding: 0 28px 40px; text-align: center; }}
-  .hidden {{ display: none !important; }}
-</style></head>
+<title>Job Hunt — __DATE__</title>
+<style>__CSS__</style></head>
 <body>
 <header>
-  <h1>Job Hunt &mdash; {date} &middot; USA &middot; tech</h1>
+  <h1>Job Hunt &mdash; __DATE__ &middot; USA &middot; tech</h1>
   <div class="stats">
-    <div class="stat"><b id="stRoles">{jobs_total}</b> roles</div>
-    <div class="stat"><b id="stNew">{jobs_new}</b> new</div>
-    <div class="stat clickable" id="companiesStat"><b id="stCompanies">{companies_with_jobs}</b> companies &#9662;</div>
-    <div class="stat"><b id="stApplied">0</b> in pipeline</div>
-    <div class="stat"><b>{non_us}</b> non-US hidden</div>
-    <div class="stat"><b>{companies_failed}</b> boards failed</div>
+    <div class="stat"><b id="stRoles">__JOBS__</b> roles</div>
+    <div class="stat"><b id="stNew">__NEW__</b> new</div>
+    <div class="stat"><b id="stCompanies">__COMPANIES__</b> companies</div>
+    <div class="stat"><b id="stPipeline">0</b> in pipeline</div>
+    <div class="stat"><b id="stGhost">0</b> possible ghosts</div>
+    <div class="stat"><b>__MERGED__</b> merged</div>
+    <div class="stat"><b>__NONUS__</b> non-US hidden</div>
+    <div class="stat"><b>__FAILED__</b> boards failed</div>
   </div>
-  <div class="cpanel hidden" id="cpanel"></div>
+  <div class="stages">
+__STAGESTRIP__
+  </div>
   <div class="tools">
     <input id="q" placeholder="Search title, company, location…" autocomplete="off">
     <select id="sortSel" class="tbtn">
       <option value="score">Sort: score</option>
+      <option value="age">Sort: newest posted</option>
       <option value="new">Sort: new first</option>
       <option value="company">Sort: company A–Z</option>
     </select>
     <button class="tbtn on" id="freshBtn">Fresh only (&le;30d)</button>
     <button class="tbtn" id="newBtn">New only</button>
+    <button class="tbtn" id="ghostBtn">Ghosts only</button>
     <button class="tbtn" id="clrBtn">Clear filters</button>
     <button class="tbtn" id="expBtn">Export applications</button>
     <span id="shown"></span>
   </div>
 </header>
-<div class="facets">
-  <div class="fgroup">
-    <span class="flabel">Status</span>
-    <button class="fchip" data-facet="status" data-val="none">Not applied <span class="fct" id="ct-none">0</span></button>
-    <button class="fchip" data-facet="status" data-val="applied">Applied <span class="fct" id="ct-applied">0</span></button>
-    <button class="fchip" data-facet="status" data-val="interviewing">Interviewing <span class="fct" id="ct-interviewing">0</span></button>
-    <button class="fchip" data-facet="status" data-val="rejected">Rejected <span class="fct" id="ct-rejected">0</span></button>
+<div class="filterbar">
+__FILTERBAR__
+</div>
+<div class="pipe">
+  <div class="pipe-h">
+    <h2>Application pipeline</h2>
+    <span class="sub" id="pipeSub">every role you have tracked, ignoring filters</span>
+    <button class="tbtn" id="pipeScope" style="margin-left:auto">All applications</button>
+    <button class="tbtn" id="pipeToggle">Hide</button>
   </div>
-{facets}
+  <div id="pipeBody">
+    <svg id="sankey" role="img" aria-label="Sankey diagram of application stages"></svg>
+    <div class="pipe-empty hidden" id="pipeEmpty">
+      Nothing tracked yet. Set a stage on any card &mdash; <b>Applied</b>, <b>Screening</b>,
+      <b>Interview</b>, <b>Offer</b> &mdash; and this fills in with the flow between them,
+      including where things drop out to <b>Rejected</b> or <b>No response</b>.
+    </div>
+  </div>
 </div>
 <div class="wrap">
   <div class="grid" id="grid">
-{cards}
+__CARDS__
   </div>
   <div class="nomatch hidden" id="noMatch">No roles match these filters.</div>
-{empty_section}
-{failed_section}
+__EMPTY__
+__FAILEDSEC__
 </div>
-<footer>Generated from runs/{date}/_run.json &middot; no applications are submitted automatically &middot; you review and apply yourself.</footer>
-<script>
-const CNAMES = {cnames};
-const q = document.getElementById('q');
-const grid = document.getElementById('grid');
-const cards = [...document.querySelectorAll('.card')];
-const shown = document.getElementById('shown');
-const noMatch = document.getElementById('noMatch');
-const cpanel = document.getElementById('cpanel');
-const companiesStat = document.getElementById('companiesStat');
-const sortSel = document.getElementById('sortSel');
-const stRoles = document.getElementById('stRoles');
-const stNew = document.getElementById('stNew');
-const stCompanies = document.getElementById('stCompanies');
-const facets = {{type:new Set(), cat:new Set(), level:new Set(), state:new Set(),
-                 src:new Set(), age:new Set(), sal:new Set(), yoe:new Set(),
-                 status:new Set(), company:new Set()}};
-let newOnly = false, freshOnly = true;
-
-// --- application pipeline state -------------------------------------------
-// Seeded from applications.json at build time, then owned by localStorage so
-// statuses survive across runs. "Export applications" writes the merged set
-// back out as applications.json.
-const STALE_BUCKETS = {stale_buckets};
-const LSKEY = 'jobscope.apps';
-let APPS = Object.assign({{}}, {apps}, JSON.parse(localStorage.getItem(LSKEY) || '{{}}'));
-
-function saveApps() {{ localStorage.setItem(LSKEY, JSON.stringify(APPS)); }}
-
-function setStatus(card, status, stamp) {{
-  const id = card.dataset.id;
-  card.dataset.status = status;
-  card.querySelector('.stsel').value = status;
-  if (status === 'none') {{ delete APPS[id]; return; }}
-  APPS[id] = {{status: status,
-               date: stamp ? new Date().toISOString().slice(0, 10)
-                           : (APPS[id] && APPS[id].date) || '{date}',
-               title: card.dataset.title, company: CNAMES[card.dataset.company] || '',
-               url: card.dataset.url}};
-}}
-
-function vals(card, f) {{
-  return f === 'state' ? card.dataset.state.split(' ').filter(Boolean) : [card.dataset[f]];
-}}
-// Does the card pass every active filter, optionally skipping one facet group?
-function passes(card, skip) {{
-  const term = q.value.trim().toLowerCase();
-  if (term && !card.dataset.search.includes(term)) return false;
-  if (newOnly && card.dataset.new !== '1') return false;
-  if (freshOnly && STALE_BUCKETS.includes(card.dataset.age)) return false;
-  for (const f in facets) {{
-    if (f === skip || !facets[f].size) continue;
-    if (!vals(card, f).some(v => facets[f].has(v))) return false;
-  }}
-  return true;
-}}
-function buildPanel() {{
-  const comps = {{}};
-  cards.forEach(c => {{ if (passes(c, 'company')) comps[c.dataset.company] = (comps[c.dataset.company] || 0) + 1; }});
-  const slugs = Object.keys(comps).sort((a, b) => (CNAMES[a] || a).localeCompare(CNAMES[b] || b));
-  cpanel.innerHTML = slugs.map(s =>
-    `<button class="fchip${{facets.company.has(s) ? ' on' : ''}}" data-facet="company" data-val="${{s}}">`
-    + `${{CNAMES[s] || s}} <span class="fct">${{comps[s]}}</span></button>`).join('')
-    || '<span class="src">No companies in view.</span>';
-}}
-function apply() {{
-  let n = 0;
-  cards.forEach(card => {{
-    const show = passes(card, null);
-    card.classList.toggle('hidden', !show);
-    if (show) n++;
-  }});
-  buildPanel();
-  const vis = cards.filter(c => !c.classList.contains('hidden'));
-  stRoles.textContent = vis.length;
-  stNew.textContent = vis.filter(c => c.dataset.new === '1').length;
-  stCompanies.textContent = new Set(vis.map(c => c.dataset.company)).size;
-  shown.textContent = n + ' / ' + cards.length + ' shown';
-  noMatch.classList.toggle('hidden', n !== 0);
-  // Status counts are over cards passing every OTHER filter, so the group
-  // stays multi-selectable like the company panel.
-  ['none', 'applied', 'interviewing', 'rejected'].forEach(s => {{
-    document.getElementById('ct-' + s).textContent =
-      cards.filter(c => passes(c, 'status') && c.dataset.status === s).length;
-  }});
-  document.getElementById('stApplied').textContent =
-    Object.values(APPS).filter(a => a.status !== 'rejected').length;
-}}
-function sortGrid() {{
-  const m = sortSel.value;
-  cards.slice().sort((a, b) => {{
-    if (m === 'company') return a.dataset.comp.localeCompare(b.dataset.comp) || b.dataset.score - a.dataset.score;
-    if (m === 'new') return (b.dataset.new - a.dataset.new) || b.dataset.score - a.dataset.score;
-    return (b.dataset.score - a.dataset.score) || a.dataset.comp.localeCompare(b.dataset.comp);
-  }}).forEach(c => grid.appendChild(c));
-}}
-q.addEventListener('input', apply);
-sortSel.addEventListener('change', sortGrid);
-companiesStat.addEventListener('click', () => {{
-  cpanel.classList.toggle('hidden');
-  companiesStat.classList.toggle('open', !cpanel.classList.contains('hidden'));
-}});
-document.getElementById('newBtn').addEventListener('click', e => {{
-  newOnly = !newOnly; e.target.classList.toggle('on', newOnly); apply();
-}});
-document.querySelectorAll('.facets .fchip').forEach(chip => chip.addEventListener('click', () => {{
-  const f = chip.dataset.facet, v = chip.dataset.val;
-  if (facets[f].has(v)) facets[f].delete(v); else facets[f].add(v);
-  chip.classList.toggle('on'); apply();
-}}));
-cpanel.addEventListener('click', e => {{
-  const chip = e.target.closest('.fchip'); if (!chip) return;
-  const v = chip.dataset.val;
-  if (facets.company.has(v)) facets.company.delete(v); else facets.company.add(v);
-  apply();
-}});
-document.getElementById('freshBtn').addEventListener('click', e => {{
-  freshOnly = !freshOnly; e.target.classList.toggle('on', freshOnly); apply();
-}});
-document.getElementById('clrBtn').addEventListener('click', () => {{
-  for (const f in facets) facets[f].clear();
-  document.querySelectorAll('.facets .fchip.on').forEach(c => c.classList.remove('on'));
-  newOnly = false; document.getElementById('newBtn').classList.remove('on');
-  freshOnly = false; document.getElementById('freshBtn').classList.remove('on');
-  q.value = ''; apply();
-}});
-grid.addEventListener('change', e => {{
-  if (!e.target.classList.contains('stsel')) return;
-  setStatus(e.target.closest('.card'), e.target.value, true);
-  saveApps(); apply();
-}});
-document.getElementById('expBtn').addEventListener('click', () => {{
-  const blob = new Blob([JSON.stringify(APPS, null, 2)], {{type: 'application/json'}});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'applications.json'; a.click();
-  URL.revokeObjectURL(a.href);
-}});
-cards.forEach(c => {{ if (APPS[c.dataset.id]) setStatus(c, APPS[c.dataset.id].status, false); }});
-apply();
-</script>
+<div class="tip hidden" id="tip"></div>
+<footer>Generated from runs/__DATE__/_run.json &middot; no applications are submitted
+automatically &middot; you review and apply yourself.</footer>
+<script>__JS__</script>
 </body></html>
 """
 
@@ -532,26 +379,23 @@ def build(date=None, do_open=True):
     except (KeyError, ValueError):
         run_date = dt.date.today()
 
-    jobs = []
-    non_us = 0
+    jobs, non_us = [], 0
     for c in companies:
         if not (c["ok"] and c["jobs"]):
             continue
         for j in c["jobs"]:
-            j["comp"] = c["name"]  # board-level company name (per-job comp is just employment type)
+            j["comp"] = c["name"]  # board-level company name
             enrich(j, c["source"], run_date)
             if j["_us"] is False:
                 non_us += 1
                 continue
             jobs.append(j)
+    jobs, merged = merge_duplicates(jobs)
     jobs.sort(key=lambda j: (-j["score"], j["comp"].lower(), j["title"].lower()))
 
     empty = [c for c in companies if c["ok"] and not c["jobs"]]
     failed = [c for c in companies if not c["ok"]]
 
-    cards = "\n".join(card(j) for j in jobs) or ""
-    facets = build_facets(jobs) if jobs else ""
-    cnames = json.dumps({slug(j["comp"]): j["comp"] for j in jobs if j.get("comp")})
     apps = {}
     if APPS_FILE.exists():
         try:
@@ -580,18 +424,36 @@ def build(date=None, do_open=True):
         failed_section = (f'<div class="section-h">Could not search '
                           f'({len(failed)}) — check the careers page directly</div>\n{items}')
 
-    page = PAGE.format(
-        date=esc(data["date"]),
-        jobs_total=len(jobs), jobs_new=sum(1 for j in jobs if j.get("new")),
-        companies_with_jobs=len({j["comp"] for j in jobs}),
-        non_us=non_us, companies_failed=st.get("companies_failed", 0),
-        facets=facets, cards=cards, cnames=cnames,
-        apps=json.dumps(apps), stale_buckets=json.dumps(list(STALE_BUCKETS)),
-        empty_section=empty_section, failed_section=failed_section,
-    )
+    js = (JS
+          .replace("__CNAMES__", json.dumps({slug(j["comp"]): j["comp"] for j in jobs if j.get("comp")}))
+          .replace("__STAGES__", json.dumps(STAGES))
+          .replace("__PROGRESSION__", json.dumps(PROGRESSION))
+          .replace("__EXITS__", json.dumps(EXITS))
+          .replace("__FACET_DEFS__", json.dumps(FACETS))
+          .replace("__STALE_BUCKETS__", json.dumps(list(STALE_BUCKETS)))
+          .replace("__APPS__", json.dumps(apps)))
+
+    page = (PAGE
+            .replace("__CSS__", CSS)
+            .replace("__FILTERBAR__", build_filterbar(jobs))
+            .replace("__STAGESTRIP__", build_stage_strip())
+            .replace("__CARDS__", "\n".join(card(j) for j in jobs))
+            .replace("__EMPTY__", empty_section)
+            .replace("__FAILEDSEC__", failed_section)
+            .replace("__JOBS__", str(len(jobs)))
+            .replace("__NEW__", str(sum(1 for j in jobs if j.get("new"))))
+            .replace("__COMPANIES__", str(len({j["comp"] for j in jobs})))
+            .replace("__MERGED__", str(merged))
+            .replace("__NONUS__", str(non_us))
+            .replace("__FAILED__", str(st.get("companies_failed", 0)))
+            .replace("__JS__", js)
+            .replace("__DATE__", esc(data["date"])))
+
     out = run_dir / "index.html"
     out.write_text(page, encoding="utf-8")
-    print(f"wrote {out} ({len(jobs)} roles, {non_us} non-US hidden)")
+    ghosts = sum(1 for j in jobs if j["_ghost"])
+    print(f"wrote {out} ({len(jobs)} roles, {merged} merged, {ghosts} possible ghosts, "
+          f"{non_us} non-US hidden)")
     if do_open:
         webbrowser.open(out.resolve().as_uri())
     return 0
