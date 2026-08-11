@@ -426,8 +426,16 @@ __CLOSED__
       <div class="flow hidden" id="viewFlow">
         <div class="funnel" id="funnel"></div>
         <div class="flowbox" id="flowbox">
-          <h2>Stage flow</h2>
-          <div class="sub">every role you have tracked &middot; hover a ribbon for exact counts</div>
+          <div class="flowhead">
+            <div>
+              <h2>Stage flow</h2>
+              <div class="sub">every role you have tracked &middot; hover a ribbon for exact counts</div>
+            </div>
+            <div class="acts">
+              <button class="tbtn" id="csvPipe" data-tip="Download everything you are tracking — stage, dates, the path it took, your notes. UTF-8 CSV with a BOM, so Excel opens it correctly on a double-click.">Pipeline CSV</button>
+              <button class="tbtn" id="csvAll" data-tip="Download the roles currently passing your filters, with score, stage, salary, experience and sponsorship. Same CSV format.">Roles CSV</button>
+            </div>
+          </div>
           <svg id="sankey" role="img" aria-label="Sankey diagram of application stages"></svg>
           <div class="flow-empty hidden" id="flowEmpty">
             Nothing tracked yet.<br>Drag a role from the list onto <b>Applied</b> on the Board tab,

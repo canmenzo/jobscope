@@ -145,6 +145,14 @@ previous one) above a full-width **Sankey** of how roles actually moved.
 Drop-offs branch off the spine at the stage they happened, so the shape shows
 *where* you lose momentum. Hover any ribbon or node for exact counts.
 
+Two **CSV exports** sit in the Flow header: **Pipeline CSV** (everything you are
+tracking — stage, dates, the path it took, your notes) and **Roles CSV** (the
+roles currently passing your filters, with score, salary, experience and
+sponsorship). Both are UTF-8 with a BOM and CRLF line ends, so Excel opens them
+correctly on a double-click, and any cell starting with `=`, `+`, `-` or `@` is
+quoted with a leading apostrophe — job titles come from third parties and Excel
+would otherwise execute them as formulas.
+
 The flow always covers every tracked role — your pipeline shouldn't shrink
 because a posting aged past the freshness filter.
 
