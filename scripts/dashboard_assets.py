@@ -155,6 +155,18 @@ button{font-family:inherit}
 .sc{font-family:var(--num);font-size:12px;font-weight:700;text-align:center;padding:2px 0;
     border-radius:5px;color:var(--cyan-ink);background:#03181f;border:1px solid #0e5c72;
     box-shadow:0 0 10px #67e8f92b,inset 0 0 8px #67e8f912}
+/* Fit band, so reachability is visible in the list instead of hidden in a
+   tooltip. Green you clear comfortably, amber is a stretch, red is a reach.
+   The number stays the number — the band only tints its frame. */
+.sc.safe{color:#4ade80;background:#04180d;border-color:#1f6b3a;
+         box-shadow:0 0 10px #4ade8026,inset 0 0 8px #4ade8010}
+.sc.target{color:#fbbf24;background:#1a1204;border-color:#6b5119;
+           box-shadow:0 0 10px #fbbf2426,inset 0 0 8px #fbbf2410}
+.sc.reach{color:#f87171;background:#1a0707;border-color:#6b2020;
+          box-shadow:0 0 10px #f8717126,inset 0 0 8px #f8717110}
+.row:hover .sc.safe{box-shadow:0 0 14px #4ade8047}
+.row:hover .sc.target{box-shadow:0 0 14px #fbbf2447}
+.row:hover .sc.reach{box-shadow:0 0 14px #f8717147}
 .rt{font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;
     text-overflow:ellipsis}
 .rt a{color:inherit;text-decoration:none}
@@ -408,6 +420,30 @@ const cvar = k => meta(k)[2];
 const saveApps = () => localStorage.setItem(LSKEY, JSON.stringify(APPS));
 
 /* ------------------------------------------------------------------ state */
+
+// History used to be append-only, so a role dragged out of Screening kept
+// "reached Screening" forever. New moves trim correctly now, but entries
+// already in localStorage still carry the stale stage — and that is what the
+// Flow view draws. Reconcile every entry against its CURRENT status on load:
+// a role sitting at Applied cannot have reached anything later, and cannot
+// also have been Rejected. Terminal statuses keep their whole path, because
+// that path really did happen.
+function repairHistory() {
+  let fixed = 0;
+  Object.values(APPS).forEach(e => {
+    if (!e || !Array.isArray(e.history)) return;
+    const cur = FUNNEL.indexOf(e.status || 'none');
+    if (cur === -1) return;                    // rejected / ghosted / accepted
+    const before = e.history.length;
+    e.history = e.history.filter(h => {
+      const i = FUNNEL.indexOf(h.stage);
+      return i !== -1 && i <= cur;
+    });
+    if (e.history.length !== before) fixed++;
+  });
+  if (fixed) saveApps();
+  return fixed;
+}
 
 function setStage(id, next, record) {
   const prev = stage(id);
@@ -1000,6 +1036,7 @@ addEventListener('keydown', e => {
   if (e.key === '/' && e.target !== q) { e.preventDefault(); q.focus(); }
 });
 
+repairHistory();
 const view = loadView();
 $('#freshBtn').classList.toggle('on', freshOnly);
 $('#newBtn').classList.toggle('on', newOnly);

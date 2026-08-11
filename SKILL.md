@@ -50,8 +50,16 @@ onboarding BEFORE searching. You drive this conversationally:
 4. Confirm the choices back to the user in one line.
 5. **Profile (drives the fit half of the score).** Ask for the path to their
    resume, read it, and extract: total years, current/most recent title, tools
-   and platforms, certifications. Ask 3-4 follow-ups for what a resume cannot
-   say — target levels, base-salary target, remote/hybrid preference. Write
+   and platforms, certifications. Then ALWAYS ask the three things a resume
+   cannot tell you, because each one silently disables part of the score if
+   left out:
+     - **target base salary** (a range is fine; take the midpoint) — without it
+       the pay component is skipped and $250K senior reqs keep scoring high;
+     - **target levels** — beware vendor ladders, an MDR "Principal" at 2.5
+       years is not a product company's Principal, so confirm rather than
+       reading the title literally;
+     - remote / hybrid / on-site preference.
+   Write
    `config/profile.yaml` (schema: `config/profile.example.yaml`). If they have
    no resume handy, collect the same fields with AskUserQuestion. Skipping this
    is allowed: without the file the score is relevance-only.

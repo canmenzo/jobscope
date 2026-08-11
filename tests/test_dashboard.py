@@ -179,3 +179,13 @@ def test_region_text_prefers_merged_locations():
 
 def test_region_text_falls_back_to_region():
     assert region_text(_enriched("Sec Eng", "Acme", "Remote - USA", 90)) == "Remote / US"
+
+
+@pytest.mark.parametrize("loc", ["United States of America", "US", "usa"])
+def test_country_only_location_is_shortened(loc):
+    # Workday puts the country in the location field; the column is 92px wide.
+    assert region_text(enrich(_job(location=loc), "workday", None)) == "US"
+
+
+def test_a_real_city_location_is_left_alone():
+    assert region_text(enrich(_job(location="Charlotte, NC"), "workday", None)) == "NC"
