@@ -69,8 +69,7 @@ button{font-family:inherit}
        color:var(--neon-ink);text-shadow:0 0 12px #f0abfc99,0 0 32px #c026d355}
 .kpi{display:flex;gap:13px;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
 .kpi b{font-family:var(--num);color:var(--ink);font-size:13px}
-.kpi span[title]{cursor:help;border-bottom:1px dotted var(--edge-2)}
-.lhead span[title]{cursor:help}
+.kpi span[data-tip]{border-bottom:1px dotted var(--edge-2)}
 .kpi .warn b{color:var(--amber)}
 .tabs{display:flex;gap:3px;padding:3px;background:var(--field);border:1px solid var(--edge-2);
       border-radius:var(--r)}
@@ -279,9 +278,11 @@ button{font-family:inherit}
 .flow-empty{color:var(--ink-3);font-size:13px;line-height:1.7;padding:30px 4px;text-align:center}
 .flow-empty b{color:var(--neon-ink)}
 
-.tip{position:fixed;z-index:90;padding:7px 11px;font-size:12px;color:var(--ink);background:#0a0a13;
-     border:1px solid var(--edge-2);border-radius:7px;pointer-events:none;
-     box-shadow:0 10px 30px #000c,0 0 18px #c026d333}
+.tip{position:fixed;z-index:90;max-width:330px;padding:9px 12px;font-size:12px;line-height:1.55;
+     color:var(--ink-2);background:#0a0a13;border:1px solid var(--edge-2);border-radius:9px;
+     pointer-events:none;box-shadow:0 12px 34px #000d,0 0 22px #c026d333;
+     animation:fadeUp .13s var(--ease) both}
+.tip b{color:var(--ink)}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:95;display:flex;
        align-items:center;gap:12px;padding:10px 16px;font-size:12.5px;color:var(--ink);
        background:#0d0a18;border:1px solid var(--neon);border-radius:24px;
@@ -394,7 +395,10 @@ const q = $('#q'), rowsEl = $('#rows'), tip = $('#tip');
 let APPS = Object.assign({}, __APPS__, JSON.parse(localStorage.getItem(LSKEY) || '{}'));
 const facets = {};
 FACET_DEFS.forEach(([f]) => facets[f] = new Set());
-let newOnly = false, freshOnly = true, ghostOnly = false;
+let newOnly = false, freshOnly = true, hideGhosts = false;
+// The forward order of the funnel. Anything not on it (Rejected, No response)
+// is terminal and always appends rather than trimming.
+const FUNNEL = ['none'].concat(BOARD_STAGES, ['accepted']);
 let sortKey = 'score', sortDir = -1, undoState = null, toastTimer = null;
 
 const stage = id => (APPS[id] || {}).status || 'none';
@@ -414,8 +418,18 @@ function setStage(id, next, record) {
   e.status = next;
   if (record) {
     const today = new Date().toISOString().slice(0, 10);
-    if (!e.history.length && prev !== 'none') e.history.push({ stage: prev, date: today });
-    if (next !== 'none') e.history.push({ stage: next, date: today });
+    const at = s => FUNNEL.indexOf(s);
+    // Moving BACKWARDS along the funnel is a correction, not progress: trim the
+    // stages you undid instead of appending. Otherwise dragging a card out of
+    // Screening leaves "reached Screening" in the history forever and the Flow
+    // view keeps showing a stage that is now empty.
+    if (at(next) !== -1 && at(prev) !== -1 && at(next) < at(prev)) {
+      e.history = e.history.filter(h => at(h.stage) !== -1 && at(h.stage) <= at(next));
+      if (next === 'none') e.history = [];
+    } else {
+      if (!e.history.length && prev !== 'none') e.history.push({ stage: prev, date: today });
+      if (next !== 'none') e.history.push({ stage: next, date: today });
+    }
     if (next === 'applied' && !e.applied_date) e.applied_date = today;
   }
   const j = JOBS[id] || {};
@@ -464,7 +478,7 @@ function passes(row, skip) {
   const term = q.value.trim().toLowerCase();
   if (term && !row.dataset.search.includes(term)) return false;
   if (newOnly && row.dataset.new !== '1') return false;
-  if (ghostOnly && row.dataset.ghost !== '1') return false;
+  if (hideGhosts && row.dataset.ghost === '1') return false;
   if (freshOnly && STALE_BUCKETS.includes(row.dataset.age)) return false;
   for (const f in facets) {
     if (f === skip || !facets[f].size) continue;
@@ -762,7 +776,8 @@ function drawSankey() {
       + `<div class="fl">${label(k)}</div><div class="fr">${rate || '&nbsp;'}</div></div>`;
   }).join('');
 
-  if (!applied) { svg.classList.add('hidden'); empty.classList.remove('hidden'); return; }
+  if (!applied) { svg.innerHTML = ''; svg.classList.add('hidden');
+                   empty.classList.remove('hidden'); return; }
   svg.classList.remove('hidden'); empty.classList.add('hidden');
 
   const colOf = {}; track.forEach((k, i) => colOf[k] = i);
@@ -828,19 +843,33 @@ function drawSankey() {
   svg.innerHTML = out;
 }
 
+// One tooltip for the whole page. Native title= was used at first and simply
+// did not read as an explanation — it needs a hover-and-wait, gives no hint
+// that there is anything to read, and styles itself like an OS error.
 const fbox = $('#flowbox');
-$('#sankey').addEventListener('mouseover', e => {
+function placeTip(e) {
+  const pad = 12;
+  let x = e.clientX + 14, y = e.clientY + 18;
+  if (x + tip.offsetWidth > innerWidth - pad) x = e.clientX - tip.offsetWidth - 14;
+  if (y + tip.offsetHeight > innerHeight - pad) y = e.clientY - tip.offsetHeight - 14;
+  tip.style.left = Math.max(pad, x) + 'px';
+  tip.style.top = Math.max(pad, y) + 'px';
+}
+document.addEventListener('mouseover', e => {
   const el = e.target.closest('[data-tip]'); if (!el) return;
-  fbox.classList.add('dim'); el.classList.add('hot');
-  tip.innerHTML = el.dataset.tip; tip.classList.remove('hidden');
+  tip.innerHTML = el.dataset.tip;
+  tip.classList.remove('hidden');
+  placeTip(e);
+  if (el.closest('#sankey')) { fbox.classList.add('dim'); el.classList.add('hot'); }
 });
-$('#sankey').addEventListener('mousemove', e => {
-  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 10) + 'px';
-  tip.style.top = (e.clientY + 16) + 'px';
+document.addEventListener('mousemove', e => {
+  if (!tip.classList.contains('hidden')) placeTip(e);
 });
-$('#sankey').addEventListener('mouseout', e => {
-  const el = e.target.closest('[data-tip]'); if (el) el.classList.remove('hot');
-  fbox.classList.remove('dim'); tip.classList.add('hidden');
+document.addEventListener('mouseout', e => {
+  const el = e.target.closest('[data-tip]'); if (!el) return;
+  el.classList.remove('hot');
+  fbox.classList.remove('dim');
+  tip.classList.add('hidden');
 });
 
 /* ----------------------------------------------------------------- views */
@@ -905,7 +934,7 @@ function saveView() {
   if (sortKey !== 'score' || sortDir !== -1) p.set('sort', sortKey + (sortDir === 1 ? '.a' : ''));
   if (!freshOnly) p.set('fresh', '0');
   if (newOnly) p.set('new', '1');
-  if (ghostOnly) p.set('ghost', '1');
+  if (hideGhosts) p.set('noghost', '1');
   if (!$('#viewFlow').classList.contains('hidden')) p.set('view', 'flow');
   for (const f in facets) if (facets[f].size) p.set(f, [...facets[f]].join('~'));
   const s = p.toString();
@@ -925,7 +954,7 @@ function loadView() {
   }
   freshOnly = p.get('fresh') !== '0';
   newOnly = p.get('new') === '1';
-  ghostOnly = p.get('ghost') === '1';
+  hideGhosts = p.get('noghost') === '1';
   for (const f in facets) if (p.get(f)) p.get(f).split('~').forEach(v => facets[f].add(v));
   return p.get('view');
 }
@@ -940,11 +969,11 @@ $('#newBtn').addEventListener('click', e => {
   newOnly = !newOnly; e.target.classList.toggle('on', newOnly); render();
 });
 $('#ghostBtn').addEventListener('click', e => {
-  ghostOnly = !ghostOnly; e.target.classList.toggle('on', ghostOnly); render();
+  hideGhosts = !hideGhosts; e.target.classList.toggle('on', hideGhosts); render();
 });
 $('#clrBtn').addEventListener('click', () => {
   for (const f in facets) facets[f].clear();
-  newOnly = ghostOnly = false; freshOnly = false;
+  newOnly = hideGhosts = false; freshOnly = false;
   ['freshBtn', 'newBtn', 'ghostBtn'].forEach(i => $('#' + i).classList.remove('on'));
   q.value = ''; render();
 });
@@ -967,7 +996,7 @@ addEventListener('keydown', e => {
 const view = loadView();
 $('#freshBtn').classList.toggle('on', freshOnly);
 $('#newBtn').classList.toggle('on', newOnly);
-$('#ghostBtn').classList.toggle('on', ghostOnly);
+$('#ghostBtn').classList.toggle('on', hideGhosts);
 $$('.lhead span').forEach(x => x.classList.toggle('sorted', x.dataset.sort === sortKey));
 sortRows();
 showTab(view === 'flow' ? 'flow' : 'board');
