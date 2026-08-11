@@ -1,6 +1,14 @@
 """Cross-run history signals and duplicate merging."""
 import pytest
-from build_dashboard import GHOST_OPEN_DAYS, enrich, merge_duplicates, norm_title
+from build_dashboard import (
+    GHOST_OPEN_DAYS,
+    age_text,
+    enrich,
+    merge_duplicates,
+    norm_title,
+    region_text,
+    sal_num,
+)
 from job_hunt import annotate_history
 
 TODAY = "2026-08-10"
@@ -138,3 +146,36 @@ def test_unique_roles_pass_through_untouched():
     out, merged = merge_duplicates(jobs)
     assert len(out) == 2 and merged == 0
     assert "_dupes" not in out[0]
+
+
+# --- list-row helpers -----------------------------------------------------
+
+@pytest.mark.parametrize("salary,expected", [
+    ("$140K–$180K", 140),
+    ("$95K–$120K", 95),
+    ("", -1),
+    (None, -1),
+])
+def test_sal_num_sorts_on_the_lower_bound(salary, expected):
+    assert sal_num(salary) == expected
+
+
+@pytest.mark.parametrize("days,expected", [(0, "today"), (1, "1d"), (30, "30d")])
+def test_age_text(days, expected):
+    assert age_text(enrich(_job(age_days=days), "greenhouse", None)) == expected
+
+
+def test_age_text_unknown():
+    j = enrich(_job(age_days=None, posted=""), "greenhouse", None)
+    assert age_text(j) == "—"
+
+
+def test_region_text_prefers_merged_locations():
+    a = _enriched("Security Engineer", "Acme", "Austin, TX", 90)
+    b = _enriched("Security Engineer", "Acme", "New York, NY", 88)
+    out, _ = merge_duplicates([a, b])
+    assert region_text(out[0]) == "TX, NY"
+
+
+def test_region_text_falls_back_to_region():
+    assert region_text(_enriched("Sec Eng", "Acme", "Remote - USA", 90)) == "Remote / US"

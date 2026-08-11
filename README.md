@@ -10,13 +10,11 @@ A Claude Code skill that runs a **USA-only, tech-only** job search end to end:
    non-tech, and clearance-required roles).
 3. Scores each role 0-100 for relevance, decaying stale postings and roles that
    demand far more experience than you have.
-4. Renders a browsable HTML web app with faceted filtering and application
-   tracking.
+4. Renders a browsable HTML web app: a dense sortable list, a drag-and-drop
+   pipeline board, and a Sankey of how your applications actually flow.
 
 > **You review and apply to everything yourself. This skill never auto-applies,
 > and it does not write resumes or cover letters.**
-
-![The dashboard](docs/dashboard.png)
 
 ## Invoke it
 
@@ -105,55 +103,57 @@ The icon is generated, not hand-drawn — regenerate it with
 ## The dashboard
 
 Every run writes `runs/<DATE>/index.html` and opens it. Zero dependencies —
-vanilla JS in a single self-contained file.
+vanilla JS in a single self-contained file, two tabs.
 
-- **Stats header** — roles, new, companies, in-pipeline, possible ghosts, merged,
-  non-US hidden, failed boards. Every count reflects the filtered view.
-- **Stage strip** — the eight funnel stages with live counts. Click any one to
-  filter the grid to it.
-- **Filter bar** — one row of dropdowns: Stage, Type, Category, Level,
-  Experience, Posted, Salary, State, Source, Company. Every dropdown is
-  **searchable** and multi-select, with live counts that account for the other
-  active filters. Multi-select within a group is OR, across groups is AND.
-- **Role cards** — relevance score, remote/hybrid/on-site pill, company, region,
-  posting age, extracted salary range, required-years chip, matched keywords, an
-  **Apply** link, a stage dropdown, and a note/date panel.
-- **Fresh only (≤30d)** — on by default. Long-open reqs are usually filled or
-  never existed; this keeps them out of your way without deleting them.
-- Live search, sort (score / newest posted / new first / company A–Z), clear-all.
-- **Filters persist** in the URL hash and `localStorage`, so a reload — or the
-  next run's dashboard — comes back to the same view. Copy the URL to share or
-  bookmark a specific slice.
-- Companies that searched OK but matched nothing, collapsed at the bottom, then
-  **failed boards** with the reason and a careers link.
+### Board
 
-## The application pipeline
+![The board](docs/dashboard.png)
 
-![The pipeline Sankey](docs/pipeline.png)
+A dense **list** on the left and a drag-and-drop **kanban** on the right.
 
-Each card carries a stage: **Not applied → Applied → Screening → Interview →
-Offer → Accepted**, with **Rejected** and **No response** as exits. Cards tint by
-stage — deepening blue along the funnel, green at Accepted, dimmed when rejected
-or ghosted.
+- **List** — one row per role: score, title, company, location, age, salary.
+  Sort by any column. Roles you're tracking carry a stage dot and sit slightly
+  lifted. Hover a row for **↗ open posting** and **+ move to Applied**.
+- **Kanban** — Applied · Screening · Interview · Offer. **Drag a row from the
+  list onto a column** to start tracking it, drag cards between columns as
+  things progress, and drag one **back onto the list** to untrack it. Every
+  move raises an **Undo** toast.
+- **Closed strip** — Accepted · Rejected · No response. Also drop targets.
+- Click a kanban card to open an inline **note**; the card shows a ✎ when it
+  has one. The date you first move something to Applied is recorded.
+- **Filters** — a single thin row above the list: search (`/` focuses it),
+  **Fresh ≤30d** (on by default), Stage, Type, Category, and **More** for
+  Level, Experience, Posted, Salary, State, Source and Company. Every dropdown
+  is searchable and multi-select, with counts that account for the other active
+  filters. OR within a group, AND across groups.
+- Filters and the active tab persist to the URL hash and `localStorage`, so a
+  reload — or the next run's dashboard — returns to the same view. Copy the URL
+  to bookmark a slice.
 
-Every stage change is timestamped into a per-role history, and the **Sankey**
-above the grid draws the flow between them: how many applications became
-screens, how many screens became interviews, and where each branch dropped out.
-Drop-offs branch off the spine at the stage they actually happened, so the shape
-tells you *where* you're losing momentum, not just the totals.
+### Flow
 
-It defaults to **All applications** — your pipeline shouldn't shrink because a
-posting aged past the freshness filter — and a toggle switches it to follow the
-current filters instead. Hover any flow or node for exact counts.
+![The flow view](docs/pipeline.png)
 
-Each card also takes a free-text **note** and an **applied date** (the ✎ button).
+A conversion strip (how many made it to each stage, and what share of the
+previous one) above a full-width **Sankey** of how roles actually moved.
+Drop-offs branch off the spine at the stage they happened, so the shape shows
+*where* you lose momentum. Hover any ribbon or node for exact counts.
 
-State lives in browser `localStorage`, so it survives rebuilds and carries across
-runs. **Export applications** downloads the whole set as `applications.json`;
+The flow always covers every tracked role — your pipeline shouldn't shrink
+because a posting aged past the freshness filter.
+
+*(Both screenshots use sample data — a fresh install starts empty.)*
+
+## Application tracking
+
+Stages are **Not applied → Applied → Screening → Interview → Offer →
+Accepted**, with **Rejected** and **No response** as exits. Every change is
+timestamped into a per-role history, which is what the Sankey draws.
+
+State lives in browser `localStorage`, so it survives rebuilds and carries
+across runs. The **⇩** button exports the whole set as `applications.json`;
 drop that file in the repo root and every future dashboard is seeded from it
 (useful for backup, or for moving to another machine/browser).
-
-*(The screenshot above uses sample data — a fresh install starts empty.)*
 
 ## Ghost-job detection
 
@@ -166,11 +166,11 @@ across runs:
   A req that keeps getting torn down and reposted is the classic evergreen /
   always-hiring pipeline, not a live opening.
 
-Either one earns a **GHOST?** badge (hover for the reason); **Ghosts only**
+Either one earns a **GHOST** tag (hover for the reason); the **Ghosts** button
 filters to them so you can decide whether they're worth your time.
 
-Separately, the same role opened once per city is **merged into one card** with a
-"N locations" chip, so a company posting to five metros stops flooding the grid.
+Separately, the same role opened once per city is **merged into one row** with a
+"N LOC" tag, so a company posting to five metros stops flooding the list.
 
 ## Relevance score (0-100)
 
@@ -213,7 +213,7 @@ Workday/iCIMS/Google careers aren't reachable by these public APIs.
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q          # 82 tests: location parsing, the filter gate, scoring,
+pytest -q          # 92 tests: location parsing, the filter gate, scoring,
                    # freshness decay, YOE + salary extraction, ghost/relist
                    # detection, duplicate merging
 ruff check scripts tests

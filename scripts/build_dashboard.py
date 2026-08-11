@@ -1,22 +1,25 @@
 """Build a browsable HTML web app for a run and open it in the browser.
 
-Reads runs/<DATE>/_run.json and renders a single self-contained page:
-  - a stats header + a clickable STAGE STRIP (the application funnel)
-  - a PIPELINE panel: a Sankey of how roles have moved between stages
-  - a FILTER BAR of searchable multi-select dropdowns (one row, any facet)
-  - a responsive GRID of role cards with per-card stage, note and applied date
-  - companies that searched OK but matched nothing, then failed boards
+Reads runs/<DATE>/_run.json and renders one self-contained page with two tabs:
 
-Non-US roles are dropped from the grid (the search is USA-only); the count is
-shown in the header so nothing silently disappears. Roles that are the same
-title at the same company are merged into one card carrying every location.
+  BOARD — a dense sortable LIST of every matching role on the left, and a
+          drag-and-drop KANBAN on the right (Applied / Screening / Interview /
+          Offer, plus a closed strip for Accepted / Rejected / No response).
+          Drag a row onto a column to move it through your pipeline; drag it
+          back onto the list to untrack it.
+  FLOW  — a full-width Sankey of how roles actually moved between stages, with
+          a conversion-rate strip above it.
+
+Non-US roles are dropped (the search is USA-only); the count is shown so
+nothing silently disappears. The same title at the same company across cities
+is merged into one row carrying every location.
 
 CSS and JS live in dashboard_assets.py and are inlined verbatim — no build
 step, no CDN, no network access required to open the result.
 
 Usage:
     python scripts/build_dashboard.py            # latest run
-    python scripts/build_dashboard.py 2026-08-10 # a specific date
+    python scripts/build_dashboard.py 2026-08-11 # a specific date
     python scripts/build_dashboard.py --no-open  # build but don't open
 """
 import datetime as dt
@@ -35,15 +38,12 @@ SKILL_ROOT = Path(__file__).resolve().parent.parent
 RUNS = SKILL_ROOT / "runs"
 APPS_FILE = SKILL_ROOT / "applications.json"
 
-TIER_COLOR = {"STRONG": "#1f9d55", "GOOD": "#b7791f", "MAYBE": "#6b7280"}
 SOURCE_NAME = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
                "smartrecruiters": "SmartRecruiters", "recruitee": "Recruitee"}
-SENIOR_LEVELS = {"senior", "staff", "principal", "lead", "manager", "director", "vp", "head"}
 LEVEL_ORDER = ["intern", "junior", "associate", "entry", "senior", "lead",
                "staff", "principal", "manager", "director", "vp", "head", "none"]
 
-# The application funnel: (key, label, css var). Order is the funnel order and
-# drives both the stage strip and the Sankey's column layout.
+# (key, label, css var). Order is the funnel order.
 STAGES = [
     ("none", "Not applied", "--st-none"),
     ("applied", "Applied", "--st-applied"),
@@ -54,10 +54,9 @@ STAGES = [
     ("rejected", "Rejected", "--st-rejected"),
     ("ghosted", "No response", "--st-ghosted"),
 ]
-PROGRESSION = ["none", "applied", "screening", "interview", "offer", "accepted"]
-EXITS = ["rejected", "ghosted"]
+BOARD_STAGES = ["applied", "screening", "interview", "offer"]   # kanban columns
+CLOSED_STAGES = ["accepted", "rejected", "ghosted"]             # closed strip
 
-# Title -> category. First match wins; order matters (specific before generic).
 CATEGORIES = [
     ("Threat Intel", ["threat intel", "threat hunt", "cyber threat", "intelligence analyst"]),
     ("Offensive / Pentest", ["offensive", "penetration", "pentest", "red team", "exploit"]),
@@ -90,10 +89,10 @@ YOE_LABEL = {"0-2": "0–2 yrs", "3-5": "3–5 yrs", "6-8": "6–8 yrs",
              "9+": "9+ yrs", "na": "Unstated"}
 SAL_LABEL = {"1": "Listed", "0": "Not listed"}
 STALE_DAYS = 60
-# A req we have personally watched stay open this long, or one that has been
-# torn down and relisted, is very likely evergreen rather than a live opening.
 GHOST_OPEN_DAYS = 45
 
+# Facets shown as their own button; everything else lives under "More".
+PRIMARY_FACETS = ["status", "type", "cat"]
 FACETS = [
     ("status", "Stage"), ("type", "Type"), ("cat", "Category"), ("level", "Level"),
     ("yoe", "Experience"), ("age", "Posted"), ("sal", "Salary"), ("state", "State"),
@@ -115,9 +114,9 @@ def norm_title(t):
 
 def categorize(title):
     t = (title or "").lower()
-    for label, kws in CATEGORIES:
+    for lab, kws in CATEGORIES:
         if any(k in t for k in kws):
-            return label
+            return lab
     return "Other"
 
 
@@ -153,12 +152,11 @@ def enrich(j, source, run_date):
 
 
 def merge_duplicates(jobs):
-    """Collapse the same role posted once per location into a single card.
+    """Collapse the same role posted once per location into a single entry.
 
     Keyed on company + normalised title, so "Security Engineer" opened for
-    Austin, NYC and Remote becomes one card carrying all three locations and
-    the union of their states. The highest-scoring posting wins as the primary
-    (its URL is the one Apply points at).
+    Austin, NYC and Remote becomes one row carrying all three locations and the
+    union of their states. The highest-scoring posting wins as the primary.
     """
     groups = {}
     for j in jobs:
@@ -184,174 +182,194 @@ def merge_duplicates(jobs):
     return out, merged
 
 
-def card(j):
-    color = TIER_COLOR.get(j["tier"], "#6b7280")
-    lvl = j.get("level", "")
-    chips = ""
-    if j.get("yoe"):
-        chips += f'<span class="chip yoe">{j["yoe"]}+ yrs</span>'
-    if lvl in SENIOR_LEVELS:
-        chips += f'<span class="chip lvl">{esc(lvl)}</span>'
-    if j.get("_dupes"):
-        chips += f'<span class="chip loc">{j["_dupes"]} locations</span>'
-    chips += "".join(f'<span class="chip">{esc(m)}</span>' for m in j.get("matched", [])[:3])
+def sal_num(s):
+    """Lower bound of an extracted '$140K–$180K' range, for sorting."""
+    m = re.search(r"\$(\d+)K", s or "")
+    return int(m.group(1)) if m else -1
 
-    badges = '<span class="new">NEW</span>' if j.get("new") else ""
+
+def age_text(j):
+    a = j["_age"]
+    return "—" if a is None else ("today" if a <= 0 else f"{a}d")
+
+
+def region_text(j):
+    return ", ".join(j["_locs"][:2]) if j.get("_locs") else j["_region"]
+
+
+def row(j):
+    badges = ""
+    if j.get("new"):
+        badges += '<span class="tag new">NEW</span>'
     if j["_ghost"]:
-        why = (f'relisted under {j["reposted"] + 1} posting ids'
-               if j.get("reposted") else
-               f'open at least {j.get("open_days", 0)} days')
-        badges += f'<span class="ghost" title="Possible evergreen/ghost req: {esc(why)}">GHOST?</span>'
-
+        why = (f'relisted under {j["reposted"] + 1} posting ids' if j.get("reposted")
+               else f'open at least {j.get("open_days", 0)} days')
+        badges += f'<span class="tag ghost" title="Possible evergreen req: {esc(why)}">GHOST</span>'
+    if j.get("_dupes"):
+        badges += f'<span class="tag loc" title="{esc(" · ".join(j["_locs"]))}">{j["_dupes"]} LOC</span>'
     age = j["_age"]
-    if age is None:
-        age_txt = ""
-    elif age >= STALE_DAYS:
-        age_txt = f' <span class="age stale">· {age}d ago</span>'
-    else:
-        age_txt = f' <span class="age">· {"today" if age <= 0 else str(age) + "d ago"}</span>'
-
-    salary = j.get("salary") or ""
-    sal_line = f'<div class="sal">{esc(salary)}</div>' if salary else ""
-    region = ", ".join(j["_locs"][:3]) if j.get("_locs") else j["_region"]
-    comp = j.get("comp") or ""
-    search = esc((j["title"] + " " + comp + " " + j.get("location", "")).lower())
-    opts = "".join(f'<option value="{k}">{esc(lab)}</option>' for k, lab, _ in STAGES)
-    return f"""  <div class="card" data-id="{esc(j['id'])}" data-search="{search}" data-new="{int(bool(j.get('new')))}"
-       data-type="{j['_type']}" data-level="{esc(lvl) or 'none'}" data-cat="{slug(j['_cat'])}"
-       data-src="{j['_src']}" data-state="{' '.join(j['_states'])}"
-       data-age="{j['_agebucket']}" data-sal="{int(bool(salary))}" data-yoe="{j['_yoebucket']}"
-       data-ghost="{int(j['_ghost'])}" data-days="{age if age is not None else 9999}"
-       data-status="none" data-company="{slug(comp)}" data-comp="{esc(comp.lower())}"
-       data-title="{esc(j['title'])}" data-url="{esc(j['url'])}" data-score="{j['score']}">
-    <div class="ctop">
-      <span class="sc" style="color:{color};border-color:{color}">{j['score']}</span>
-      <span class="tpill t-{j['_type']}">{TYPE_LABEL[j['_type']]}</span>{badges}
-    </div>
-    <a class="jt" href="{esc(j['url'])}" target="_blank" rel="noopener">{esc(j['title'])}</a>
-    <div class="cco">{esc(comp)}</div>
-    <div class="cloc">{esc(region)}{age_txt}</div>
-    {sal_line}<div class="chips">{chips}</div>
-    <a class="apply" href="{esc(j['url'])}" target="_blank" rel="noopener">Apply &rarr;</a>
-    <div class="crow">
-      <select class="stsel">{opts}</select>
-      <button class="notebtn" title="Note and applied date">&#9998;</button>
-    </div>
-    <div class="notewrap hidden">
-      <textarea class="ntext" placeholder="Notes — recruiter, referral, follow-up date…"></textarea>
-      <input class="napp" type="date" title="Date applied">
+    stale = " stale" if age is not None and age >= STALE_DAYS else ""
+    return f"""  <div class="row" draggable="true" data-id="{esc(j['id'])}"
+       data-search="{esc((j['title'] + ' ' + j['comp'] + ' ' + j.get('location', '')).lower())}"
+       data-new="{int(bool(j.get('new')))}" data-ghost="{int(j['_ghost'])}"
+       data-type="{j['_type']}" data-level="{esc(j.get('level') or 'none')}"
+       data-cat="{slug(j['_cat'])}" data-src="{j['_src']}" data-state="{' '.join(j['_states'])}"
+       data-age="{j['_agebucket']}" data-sal="{int(bool(j.get('salary')))}"
+       data-yoe="{j['_yoebucket']}" data-company="{slug(j['comp'])}"
+       data-score="{j['score']}" data-days="{age if age is not None else 9999}"
+       data-salnum="{sal_num(j.get('salary'))}" data-ttl="{esc(j['title'].lower())}"
+       data-comp="{esc(j['comp'].lower())}" data-loc="{esc(region_text(j).lower())}">
+    <div class="sc">{j['score']}</div>
+    <div class="rt"><a href="{esc(j['url'])}" target="_blank" rel="noopener">{esc(j['title'])}</a>{badges}</div>
+    <div class="rc">{esc(j['comp'])}</div>
+    <div class="rl">{esc(region_text(j))}</div>
+    <div class="ra{stale}">{age_text(j)}</div>
+    <div class="rs">{esc(j.get('salary') or '—')}</div>
+    <div class="racts">
+      <button class="iact" data-act="open" title="Open posting">&#8599;</button>
+      <button class="iact" data-act="apply" title="Move to Applied">&#43;</button>
     </div>
   </div>"""
 
 
-def dropdown(field, label, options, order, labels):
-    """One searchable multi-select facet. Options are re-rendered by JS on open,
-    so the markup only needs the shell plus the ordering/label metadata."""
-    return f"""    <div class="fdd" data-facet="{field}"
+def dropdown(btn_label, fields, labels_by_field, order_by_field, align=""):
+    """A searchable multi-select. `fields` with one entry is a single facet;
+    with several it becomes the grouped "More" menu."""
+    single = fields[0] if len(fields) == 1 else ""
+    data_single = f'data-facet="{single}"' if single else ""
+    labels, order = {}, []
+    for f in fields:
+        labels.update(labels_by_field.get(f, {}))
+        order += order_by_field.get(f, [])
+    return f"""    <div class="fdd" {data_single} data-fields='{html.escape(json.dumps(fields), quote=True)}'
          data-order='{html.escape(json.dumps(order), quote=True)}'
-         data-labels='{html.escape(json.dumps(labels), quote=True)}'>
-      <button class="fddbtn">{esc(label)}<span class="cnt hidden">0</span><span class="car">&#9662;</span></button>
-      <div class="fddmenu hidden">
-        <input class="fddsearch" placeholder="Search {esc(label.lower())}&hellip;" autocomplete="off">
-        <div class="fddlist"></div>
-        <div class="fddfoot"><button class="fdd-all">Select all</button>
-          <button class="fdd-none">Clear</button></div>
-      </div>
+         data-labels='{html.escape(json.dumps(labels), quote=True)}' data-align="{align}">
+      <button class="fbtn">{esc(btn_label)}<span class="n hidden">0</span><span class="car">&#9662;</span></button>
     </div>"""
 
 
-def build_filterbar(jobs):
+def build_filters(jobs):
     cnames = {slug(j["comp"]): j["comp"] for j in jobs if j.get("comp")}
-    meta = {
-        "status": ([k for k, _, _ in STAGES], {k: lab for k, lab, _ in STAGES}),
-        "type": (["remote", "hybrid", "onsite", "unspecified"], TYPE_LABEL),
-        "cat": ([], {slug(c): c for c, _ in CATEGORIES} | {"other": "Other"}),
-        "level": (LEVEL_ORDER, {lv: lv.capitalize() for lv in LEVEL_ORDER} | {"none": "Unspecified"}),
-        "yoe": (list(YOE_LABEL), YOE_LABEL),
-        "age": (list(AGE_LABEL), AGE_LABEL),
-        "sal": (["1", "0"], SAL_LABEL),
-        "state": ([], {}),
-        "src": ([], SOURCE_NAME),
-        "company": ([], cnames),
+    labels = {
+        "status": {k: lab for k, lab, _ in STAGES},
+        "type": TYPE_LABEL,
+        "cat": {slug(c): c for c, _ in CATEGORIES} | {"other": "Other"},
+        "level": {lv: lv.capitalize() for lv in LEVEL_ORDER} | {"none": "Unspecified"},
+        "yoe": YOE_LABEL, "age": AGE_LABEL, "sal": SAL_LABEL,
+        "state": {}, "src": SOURCE_NAME, "company": cnames,
     }
-    return "\n".join(dropdown(f, lab, None, *meta[f]) for f, lab in FACETS)
+    order = {
+        "status": [k for k, _, _ in STAGES], "type": list(TYPE_LABEL),
+        "level": LEVEL_ORDER, "yoe": list(YOE_LABEL), "age": list(AGE_LABEL),
+        "sal": ["1", "0"], "cat": [], "state": [], "src": [], "company": [],
+    }
+    out = [dropdown(lab, [f], labels, order)
+           for f, lab in FACETS if f in PRIMARY_FACETS]
+    rest = [f for f, _ in FACETS if f not in PRIMARY_FACETS]
+    out.append(dropdown("More", rest, labels, order, align="right"))
+    return "\n".join(out)
 
 
-def build_stage_strip():
-    return "\n".join(
-        f'    <div class="stg" data-stage="{k}" style="color:var({var})">'
-        f'<span class="dot"></span><span class="n">0</span>'
-        f'<span class="lbl">{esc(lab)}</span></div>'
-        for k, lab, var in STAGES)
+def build_columns():
+    cols = []
+    for k in BOARD_STAGES:
+        lab = dict((s[0], s[1]) for s in STAGES)[k]
+        var = dict((s[0], s[2]) for s in STAGES)[k]
+        cols.append(f"""      <div class="col" id="dz-{k}">
+        <div class="ch"><span class="sw" style="background:var({var})"></span>{esc(lab)}
+          <span class="cn" id="cn-{k}">0</span></div>
+        <div class="cb" id="cb-{k}"></div>
+      </div>""")
+    return "\n".join(cols)
+
+
+def build_closed():
+    out = []
+    for k in CLOSED_STAGES:
+        lab = dict((s[0], s[1]) for s in STAGES)[k]
+        var = dict((s[0], s[2]) for s in STAGES)[k]
+        out.append(f'<div class="cl" id="dz-{k}"><span class="sw" style="background:var({var})">'
+                   f'</span><b id="cn-{k}">0</b> {esc(lab)}</div>')
+    return "\n".join(out)
 
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Job Hunt — __DATE__</title>
+<title>Jobscope — __DATE__</title>
 <style>__CSS__</style></head>
 <body>
-<header>
-  <h1>Job Hunt &mdash; __DATE__ &middot; USA &middot; tech</h1>
-  <div class="stats">
-    <div class="stat"><b id="stRoles">__JOBS__</b> roles</div>
-    <div class="stat"><b id="stNew">__NEW__</b> new</div>
-    <div class="stat"><b id="stCompanies">__COMPANIES__</b> companies</div>
-    <div class="stat"><b id="stPipeline">0</b> in pipeline</div>
-    <div class="stat"><b id="stGhost">0</b> possible ghosts</div>
-    <div class="stat"><b>__MERGED__</b> merged</div>
-    <div class="stat"><b>__NONUS__</b> non-US hidden</div>
-    <div class="stat"><b>__FAILED__</b> boards failed</div>
+<div class="app">
+  <div class="top">
+    <div class="brand">Jobscope</div>
+    <div class="kpi">
+      <span><b id="shown">0</b> shown</span>
+      <span><b>__JOBS__</b> roles</span>
+      <span><b>__COMPANIES__</b> companies</span>
+      <span><b id="kTracked">0</b> tracked</span>
+      <span class="warn"><b>__GHOSTS__</b> ghosts</span>
+    </div>
+    <div class="tabs">
+      <button class="tab on" data-view="board">Board</button>
+      <button class="tab" data-view="flow">Flow</button>
+    </div>
+    <div class="live"><span class="dot"></span>__DATE__ &middot; USA &middot; Tech</div>
   </div>
-  <div class="stages">
-__STAGESTRIP__
-  </div>
-  <div class="tools">
-    <input id="q" placeholder="Search title, company, location…" autocomplete="off">
-    <select id="sortSel" class="tbtn">
-      <option value="score">Sort: score</option>
-      <option value="age">Sort: newest posted</option>
-      <option value="new">Sort: new first</option>
-      <option value="company">Sort: company A–Z</option>
-    </select>
-    <button class="tbtn on" id="freshBtn">Fresh only (&le;30d)</button>
-    <button class="tbtn" id="newBtn">New only</button>
-    <button class="tbtn" id="ghostBtn">Ghosts only</button>
-    <button class="tbtn" id="clrBtn">Clear filters</button>
-    <button class="tbtn" id="expBtn">Export applications</button>
-    <span id="shown"></span>
-  </div>
-</header>
-<div class="filterbar">
-__FILTERBAR__
-</div>
-<div class="pipe">
-  <div class="pipe-h">
-    <h2>Application pipeline</h2>
-    <span class="sub" id="pipeSub">every role you have tracked, ignoring filters</span>
-    <button class="tbtn" id="pipeScope" style="margin-left:auto">All applications</button>
-    <button class="tbtn" id="pipeToggle">Hide</button>
-  </div>
-  <div id="pipeBody">
-    <svg id="sankey" role="img" aria-label="Sankey diagram of application stages"></svg>
-    <div class="pipe-empty hidden" id="pipeEmpty">
-      Nothing tracked yet. Set a stage on any card &mdash; <b>Applied</b>, <b>Screening</b>,
-      <b>Interview</b>, <b>Offer</b> &mdash; and this fills in with the flow between them,
-      including where things drop out to <b>Rejected</b> or <b>No response</b>.
+
+  <div class="main">
+    <div class="listpane" id="listpane">
+      <div class="filters">
+        <input class="search" id="q" placeholder="Search title, company, location…  ( / )" autocomplete="off">
+        <button class="fbtn on" id="freshBtn">Fresh <span class="n">30d</span></button>
+__FILTERS__
+        <button class="fbtn" id="newBtn">New</button>
+        <button class="fbtn" id="ghostBtn">Ghosts</button>
+        <button class="fbtn" id="clrBtn" title="Clear all filters">&#10005;</button>
+        <button class="fbtn" id="expBtn" title="Export applications.json">&#8681;</button>
+      </div>
+      <div class="lhead">
+        <span data-sort="score" class="sorted">Score</span>
+        <span data-sort="title">Role</span>
+        <span data-sort="company">Company</span>
+        <span data-sort="location">Location</span>
+        <span data-sort="age" style="text-align:right">Age</span>
+        <span data-sort="salary" style="text-align:right">Salary</span>
+      </div>
+      <div class="rows" id="rows">
+__ROWS__
+      </div>
+      <div class="empty-list hidden" id="emptyList">No roles match these filters.</div>
+    </div>
+
+    <div class="right">
+      <div class="board" id="viewBoard">
+        <div class="cols">
+__COLUMNS__
+        </div>
+        <div class="closed">
+          <span class="lab">Closed</span>
+__CLOSED__
+          <span class="hint">drag a card here to close it out</span>
+        </div>
+      </div>
+
+      <div class="flow hidden" id="viewFlow">
+        <div class="funnel" id="funnel"></div>
+        <div class="flowbox" id="flowbox">
+          <h2>Stage flow</h2>
+          <div class="sub">every role you have tracked &middot; hover a ribbon for exact counts</div>
+          <svg id="sankey" role="img" aria-label="Sankey diagram of application stages"></svg>
+          <div class="flow-empty hidden" id="flowEmpty">
+            Nothing tracked yet.<br>Drag a role from the list onto <b>Applied</b> on the Board tab,
+            then move it along as things progress —<br>this fills in with the flow between stages,
+            including where things drop out.
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
-<div class="wrap">
-  <div class="grid" id="grid">
-__CARDS__
-  </div>
-  <div class="nomatch hidden" id="noMatch">No roles match these filters.</div>
-__EMPTY__
-__FAILEDSEC__
-</div>
 <div class="tip hidden" id="tip"></div>
-<footer>Generated from runs/__DATE__/_run.json &middot; no applications are submitted
-automatically &middot; you review and apply yourself.</footer>
 <script>__JS__</script>
 </body></html>
 """
@@ -372,19 +390,17 @@ def build(date=None, do_open=True):
         print(f"no _run.json in {run_dir}")
         return 1
     data = json.loads(run_json.read_text(encoding="utf-8"))
-    companies = data["companies"]
-    st = data.get("stats", {})
     try:
         run_date = dt.date.fromisoformat(data["date"])
     except (KeyError, ValueError):
         run_date = dt.date.today()
 
     jobs, non_us = [], 0
-    for c in companies:
+    for c in data["companies"]:
         if not (c["ok"] and c["jobs"]):
             continue
         for j in c["jobs"]:
-            j["comp"] = c["name"]  # board-level company name
+            j["comp"] = c["name"]
             enrich(j, c["source"], run_date)
             if j["_us"] is False:
                 non_us += 1
@@ -393,9 +409,6 @@ def build(date=None, do_open=True):
     jobs, merged = merge_duplicates(jobs)
     jobs.sort(key=lambda j: (-j["score"], j["comp"].lower(), j["title"].lower()))
 
-    empty = [c for c in companies if c["ok"] and not c["jobs"]]
-    failed = [c for c in companies if not c["ok"]]
-
     apps = {}
     if APPS_FILE.exists():
         try:
@@ -403,55 +416,38 @@ def build(date=None, do_open=True):
         except json.JSONDecodeError:
             print(f"warning: {APPS_FILE.name} is not valid JSON — ignoring it")
 
-    empty_section = ""
-    if empty:
-        items = "\n".join(
-            f'<div class="empty-co"><span class="coname-sm">{esc(c["name"])}</span>'
-            f'<span class="src">{esc(SOURCE_NAME.get(c["source"], c["source"]))}</span>'
-            f'<a href="{esc(c["careers_url"])}" target="_blank" rel="noopener">careers &nearr;</a></div>'
-            for c in sorted(empty, key=lambda c: c["name"].lower()))
-        empty_section = (f'<div class="section-h">Searched, no matching roles '
-                         f'({len(empty)})</div>\n{items}')
-
-    failed_section = ""
-    if failed:
-        items = "\n".join(
-            f'<div class="failed-co"><span class="coname-sm">{esc(c["name"])}</span>'
-            f'<span class="src">{esc(SOURCE_NAME.get(c["source"], c["source"]))}</span>'
-            f'<span class="why">{esc(c["error"] or "could not fetch")}</span>'
-            f'<a href="{esc(c["careers_url"])}" target="_blank" rel="noopener">open careers page &nearr;</a></div>'
-            for c in sorted(failed, key=lambda c: c["name"].lower()))
-        failed_section = (f'<div class="section-h">Could not search '
-                          f'({len(failed)}) — check the careers page directly</div>\n{items}')
+    # Compact job index the JS builds kanban cards from, so a tracked role still
+    # renders on the board while filtered out of the list.
+    jobs_js = {j["id"]: {"title": j["title"], "comp": j["comp"], "url": j["url"],
+                         "region": region_text(j), "age": age_text(j),
+                         "salary": j.get("salary") or "", "score": j["score"]}
+               for j in jobs}
 
     js = (JS
-          .replace("__CNAMES__", json.dumps({slug(j["comp"]): j["comp"] for j in jobs if j.get("comp")}))
+          .replace("__JOBS__", json.dumps(jobs_js))
           .replace("__STAGES__", json.dumps(STAGES))
-          .replace("__PROGRESSION__", json.dumps(PROGRESSION))
-          .replace("__EXITS__", json.dumps(EXITS))
+          .replace("__BOARD_STAGES__", json.dumps(BOARD_STAGES))
+          .replace("__CLOSED_STAGES__", json.dumps(CLOSED_STAGES))
           .replace("__FACET_DEFS__", json.dumps(FACETS))
+          .replace("__PRIMARY_FACETS__", json.dumps(PRIMARY_FACETS))
           .replace("__STALE_BUCKETS__", json.dumps(list(STALE_BUCKETS)))
           .replace("__APPS__", json.dumps(apps)))
 
+    ghosts = sum(1 for j in jobs if j["_ghost"])
     page = (PAGE
             .replace("__CSS__", CSS)
-            .replace("__FILTERBAR__", build_filterbar(jobs))
-            .replace("__STAGESTRIP__", build_stage_strip())
-            .replace("__CARDS__", "\n".join(card(j) for j in jobs))
-            .replace("__EMPTY__", empty_section)
-            .replace("__FAILEDSEC__", failed_section)
+            .replace("__FILTERS__", build_filters(jobs))
+            .replace("__ROWS__", "\n".join(row(j) for j in jobs))
+            .replace("__COLUMNS__", build_columns())
+            .replace("__CLOSED__", build_closed())
             .replace("__JOBS__", str(len(jobs)))
-            .replace("__NEW__", str(sum(1 for j in jobs if j.get("new"))))
             .replace("__COMPANIES__", str(len({j["comp"] for j in jobs})))
-            .replace("__MERGED__", str(merged))
-            .replace("__NONUS__", str(non_us))
-            .replace("__FAILED__", str(st.get("companies_failed", 0)))
+            .replace("__GHOSTS__", str(ghosts))
             .replace("__JS__", js)
             .replace("__DATE__", esc(data["date"])))
 
     out = run_dir / "index.html"
     out.write_text(page, encoding="utf-8")
-    ghosts = sum(1 for j in jobs if j["_ghost"])
     print(f"wrote {out} ({len(jobs)} roles, {merged} merged, {ghosts} possible ghosts, "
           f"{non_us} non-US hidden)")
     if do_open:
