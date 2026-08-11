@@ -89,7 +89,7 @@ button{font-family:inherit}
 .kpi b{font-family:var(--num);color:var(--ink);font-size:13px}
 .kpi i{font-style:normal;color:var(--ink-4);margin:0 1px}
 .kpi .tot{color:var(--ink-3);font-size:12px}
-.kpi span{cursor:help;transition:color .15s}
+.kpi span{cursor:default;transition:color .15s}
 .kpi span:hover{color:var(--ink-2)}
 .kpi .warn b{color:var(--amber)}
 
