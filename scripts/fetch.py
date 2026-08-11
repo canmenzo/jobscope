@@ -15,7 +15,7 @@ import datetime as dt
 import html
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
@@ -35,9 +35,11 @@ BOARD_URL = {
 }
 
 HEADERS = {"User-Agent": "job-hunt-skill/2.0 (personal job search)"}
-TIMEOUT = 20
+TIMEOUT = (5, 20)  # (connect, read) — a stalled host can't wedge the whole run
 SLEEP_BETWEEN = 0.5  # be polite (within one company's paginated fetch)
 MAX_WORKERS = 10     # parallel across companies — each hits a different board
+RETRIES = 1          # one retry on timeout/connection error (not on HTTP errors)
+RETRY_BACKOFF = 2.0
 
 # Pretty display names where title-casing the slug isn't enough.
 NAME_OVERRIDES = {
@@ -122,7 +124,20 @@ def board_url(source, slug):
 
 
 def _get(url):
-    r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    """GET + parse JSON, retrying once on a transient network failure.
+
+    A board that times out because the host is briefly throttling us would
+    otherwise be reported as a dead slug and lose all of its postings. An
+    HTTP error is NOT retried — that's a genuinely bad slug or closed board.
+    """
+    for attempt in range(RETRIES + 1):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+            break
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt == RETRIES:
+                raise
+            time.sleep(RETRY_BACKOFF)
     r.raise_for_status()
     return r.json()
 
@@ -241,7 +256,7 @@ def _fetch_one(c):
     fetcher = _FETCHERS.get(source)
     if not fetcher:
         st["error"] = f"unknown source '{source}'"
-        return st, [], f"  ! {source:15} {slug:24} -> unknown source"
+        return st, [], f"! {source:15} {slug:24} -> unknown source"
     try:
         jobs = fetcher(slug)
         st["ok"] = True
@@ -250,22 +265,29 @@ def _fetch_one(c):
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else "?"
         st["error"] = f"HTTP {code} (bad slug or board closed)"
-        return st, [], f"  ! {source:15} {slug:24} -> HTTP {code} — skipped"
+        return st, [], f"! {source:15} {slug:24} -> HTTP {code} — skipped"
     except Exception as e:  # noqa: BLE001 — resilience: never crash the run
         st["error"] = f"{type(e).__name__}: {e}"
-        return st, [], f"  ! {source:15} {slug:24} -> {type(e).__name__} — skipped"
+        return st, [], f"! {source:15} {slug:24} -> {type(e).__name__} — skipped"
 
 
 def fetch_all(companies, log):
     """companies: list of {source, slug}.  Returns (jobs, statuses).
 
     Companies are fetched in parallel (each worker hits a different board, so
-    no single host sees a burst); results are logged in catalog order.
+    no single host sees a burst). Lines are logged as each board COMPLETES,
+    not in catalog order — with ordered logging one slow board silently held
+    back every line behind it and the run looked frozen. Statuses are sorted
+    afterwards so the run file stays deterministic.
     """
     out, statuses = [], []
+    total = len(companies)
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        for st, jobs, line in ex.map(_fetch_one, companies):
+        futures = [ex.submit(_fetch_one, c) for c in companies]
+        for i, fut in enumerate(as_completed(futures), 1):
+            st, jobs, line = fut.result()
             statuses.append(st)
             out.extend(jobs)
-            log(line)
+            log(f"  [{i:>3}/{total}] {line}")
+    statuses.sort(key=lambda s: (s["source"], s["slug"]))
     return out, statuses
