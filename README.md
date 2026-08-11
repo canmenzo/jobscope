@@ -211,8 +211,10 @@ matches. Fit is the missing half, computed from `config/profile.yaml`:
 | Skills | 25 | How much of your toolkit the posting actually names |
 | Pay band | 10 | A listed floor far above your target signals a senior role |
 
-The displayed score is a blend, weighted toward fit. **Hover any score** to see
-what pulled that one down ("wants 8+ yrs (you have 3); staff level, a stretch").
+The displayed score is a blend, weighted toward fit, and the score chip is
+tinted by reachability — **green** you clear comfortably, **amber** is a
+stretch, **red** is a reach. **Hover any score** to see what pulled that one
+down ("wants 8+ yrs (you have 3); staff level, a stretch").
 
 Without `config/profile.yaml` fit is off and the score is pure relevance, so the
 tool still works before you onboard. Set it up by asking Claude to read your
@@ -247,7 +249,7 @@ Workday/iCIMS/Google careers aren't reachable by these public APIs.
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest -q          # 100 tests: location parsing, the filter gate, scoring,
+pytest -q          # 129 tests: location parsing, the filter gate, scoring,
                    # freshness decay, YOE + salary extraction, ghost/relist
                    # detection, duplicate merging
 ruff check scripts tests

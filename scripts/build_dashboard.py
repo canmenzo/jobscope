@@ -92,13 +92,21 @@ SAL_LABEL = {"1": "Listed", "0": "Not listed"}
 STALE_DAYS = 60
 GHOST_OPEN_DAYS = 45
 
+def fit_band(fit):
+    """Coarse reachability label; mirrors fit.band so the colour and the words
+    can never disagree."""
+    return "SAFE" if fit >= 70 else "TARGET" if fit >= 45 else "REACH"
+
+
 SCORE_TIP = (
     "How good this role is FOR YOU, 0-100. Blends two things: relevance "
     "(does it match the titles and keywords you are searching for) and fit "
     "(could you realistically get it — years of experience asked for vs yours, "
     "the level of the title, how much of your toolkit it names, and whether the "
     "posted pay band sits above you). Fit carries the larger share. "
-    "Hover a score to see what pulled that one down. "
+    "The chip is tinted by reachability: <b>green</b> you clear comfortably, "
+    "<b>amber</b> is a stretch, <b>red</b> is a reach. "
+    "Hover any score to see what pulled that one down. "
     "Add config/profile.yaml to switch fit on; without it this is relevance only."
 )
 
@@ -153,12 +161,17 @@ def enrich(j, source, run_date):
     j["_yoebucket"] = ("na" if not yoe else "0-2" if yoe <= 2 else
                        "3-5" if yoe <= 5 else "6-8" if yoe <= 8 else "9+")
     j["_ghost"] = bool(j.get("reposted")) or (j.get("open_days") or 0) >= GHOST_OPEN_DAYS
+    loc = (j.get("location") or "").strip()
     if states:
         j["_region"] = ", ".join(states)
     elif loc_type in ("remote", "unspecified"):
         j["_region"] = "Remote / US"
+    elif "united states" in loc.lower() or loc.upper() in ("US", "USA"):
+        # Some boards (Workday) put the country in the location field; showing
+        # "United States of Ameri..." in a 92px column tells the reader nothing.
+        j["_region"] = "US"
     else:
-        j["_region"] = j.get("location") or "US"
+        j["_region"] = loc or "US"
     return j
 
 
@@ -209,12 +222,14 @@ def region_text(j):
 
 
 def row(j):
+    band = f" {fit_band(j['fit']).lower()}" if j.get("fit") is not None else ""
     if j.get("fit") is None:
         score_tip = ""
     else:
         why = "; ".join(j.get("fit_reasons") or []) or "nothing holding it back"
-        score_tip = (f' data-tip="<b>Relevance {j.get("relevance", j["score"])}'
-                     f' &middot; Fit {j["fit"]}</b><br>{esc(why)}"')
+        score_tip = (f' data-tip="<b>{fit_band(j["fit"])} &middot; relevance '
+                     f'{j.get("relevance", j["score"])} &middot; fit {j["fit"]}'
+                     f'</b><br>{esc(why)}"')
     badges = ""
     if j.get("new"):
         badges += '<span class="tag new">NEW</span>'
@@ -236,7 +251,7 @@ def row(j):
        data-score="{j['score']}" data-days="{age if age is not None else 9999}"
        data-salnum="{sal_num(j.get('salary'))}" data-ttl="{esc(j['title'].lower())}"
        data-comp="{esc(j['comp'].lower())}" data-loc="{esc(region_text(j).lower())}">
-    <div class="sc"{score_tip}>{j['score']}</div>
+    <div class="sc{band}"{score_tip}>{j['score']}</div>
     <div class="rt"><a href="{esc(j['url'])}" target="_blank" rel="noopener">{esc(j['title'])}</a>{badges}</div>
     <div class="rc">{esc(j['comp'])}</div>
     <div class="rl">{esc(region_text(j))}</div>
