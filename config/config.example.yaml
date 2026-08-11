@@ -33,3 +33,11 @@ min_score: 55          # drop roles scoring below this (0-100 relevance).
 # exclude_levels: scored 0 (dropped entirely by min_score).
 downrank_levels: []
 exclude_levels: []
+
+# Freshness decay. Postings older than ~3 weeks lose relevance, down to -22 at
+# ~5 months, so long-open ghost reqs stop crowding out fresh ones.
+freshness: true
+
+# Downrank postings demanding meaningfully more experience than you have.
+# -5 relevance per year above this, capped at -20. Set 0 to disable.
+max_yoe: 0

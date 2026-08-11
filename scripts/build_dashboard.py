@@ -25,10 +25,11 @@ import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from filter import classify_location, US_STATES  # noqa: E402
+from filter import classify_location  # noqa: E402
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 RUNS = SKILL_ROOT / "runs"
+APPS_FILE = SKILL_ROOT / "applications.json"
 
 TIER_COLOR = {"STRONG": "#1f9d55", "GOOD": "#b7791f", "MAYBE": "#6b7280"}
 SOURCE_NAME = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
@@ -63,8 +64,12 @@ CATEGORIES = [
 ]
 TYPE_LABEL = {"remote": "Remote", "hybrid": "Hybrid", "onsite": "On-site",
               "unspecified": "Unspecified"}
-AGE_LABEL = {"7d": "Last 7 days", "30d": "8–30 days", "old": "30+ days",
-             "na": "Unknown"}
+AGE_LABEL = {"7d": "Last 7 days", "30d": "8–30 days", "90d": "31–90 days",
+             "old": "90+ days", "na": "Unknown"}
+# Buckets the "Fresh only" toggle hides. Unknown-age roles are never hidden.
+STALE_BUCKETS = ("90d", "old")
+YOE_LABEL = {"0-2": "0–2 yrs", "3-5": "3–5 yrs", "6-8": "6–8 yrs",
+             "9+": "9+ yrs", "na": "Unstated"}
 STALE_DAYS = 60
 
 
@@ -92,15 +97,19 @@ def enrich(j, source, run_date):
     j["_states"] = states
     j["_cat"] = categorize(j.get("title"))
     j["_src"] = source
-    age = None
-    if j.get("posted"):
+    age = j.get("age_days")
+    if age is None and j.get("posted"):
         try:
             age = (run_date - dt.date.fromisoformat(j["posted"])).days
         except ValueError:
             pass
     j["_age"] = age
     j["_agebucket"] = ("na" if age is None else
-                       "7d" if age <= 7 else "30d" if age <= 30 else "old")
+                       "7d" if age <= 7 else "30d" if age <= 30 else
+                       "90d" if age <= 90 else "old")
+    yoe = j.get("yoe")
+    j["_yoebucket"] = ("na" if not yoe else "0-2" if yoe <= 2 else
+                       "3-5" if yoe <= 5 else "6-8" if yoe <= 8 else "9+")
     if states:
         j["_region"] = ", ".join(states)
     elif loc_type in ("remote", "unspecified"):
@@ -134,12 +143,15 @@ def card(j):
         age_txt = f' <span class="age">· {"today" if age <= 0 else str(age) + "d ago"}</span>'
     salary = j.get("salary") or ""
     sal_line = f'<div class="sal">{esc(salary)}</div>' if salary else ""
+    yoe = j.get("yoe")
+    yoe_chip = f'<span class="chip yoe">{yoe}+ yrs</span>' if yoe else ""
     search = esc((j["title"] + " " + comp + " " + j.get("location", "")).lower())
-    return f"""  <div class="card" data-search="{search}" data-new="{int(bool(j.get('new')))}"
+    return f"""  <div class="card" data-id="{esc(j['id'])}" data-search="{search}" data-new="{int(bool(j.get('new')))}"
        data-type="{j['_type']}" data-level="{esc(lvl) or 'none'}" data-cat="{slug(j['_cat'])}"
        data-src="{j['_src']}" data-state="{' '.join(state_tokens(j))}"
-       data-age="{j['_agebucket']}" data-sal="{int(bool(salary))}"
-       data-company="{slug(comp)}" data-comp="{esc(comp.lower())}" data-score="{j['score']}">
+       data-age="{j['_agebucket']}" data-sal="{int(bool(salary))}" data-yoe="{j['_yoebucket']}"
+       data-status="none" data-company="{slug(comp)}" data-comp="{esc(comp.lower())}"
+       data-title="{esc(j['title'])}" data-url="{esc(j['url'])}" data-score="{j['score']}">
     <div class="ctop">
       <span class="sc" style="color:{color};border-color:{color}">{j['score']}</span>
       {type_pill}{newbadge}
@@ -147,8 +159,14 @@ def card(j):
     <a class="jt" href="{esc(j['url'])}" target="_blank" rel="noopener">{esc(j['title'])}</a>
     <div class="cco">{comp}</div>
     <div class="cloc">{esc(j['_region'])}{age_txt}</div>
-    {sal_line}<div class="chips">{chips}</div>
+    {sal_line}<div class="chips">{yoe_chip}{chips}</div>
     <a class="apply" href="{esc(j['url'])}" target="_blank" rel="noopener">Apply &rarr;</a>
+    <select class="stsel">
+      <option value="none">&mdash; not applied</option>
+      <option value="applied">&#10003; Applied</option>
+      <option value="interviewing">&#9670; Interviewing</option>
+      <option value="rejected">&#10007; Rejected</option>
+    </select>
   </div>"""
 
 
@@ -194,7 +212,10 @@ def build_facets(jobs):
                       key=lambda o: (-o[2], o[1]))
 
     ages = counts(lambda j: [j["_agebucket"]])
-    age_opts = [(a, AGE_LABEL[a], ages.get(a, 0)) for a in ("7d", "30d", "old", "na")]
+    age_opts = [(a, AGE_LABEL[a], ages.get(a, 0)) for a in AGE_LABEL]
+
+    yoes = counts(lambda j: [j["_yoebucket"]])
+    yoe_opts = [(y, YOE_LABEL[y], yoes.get(y, 0)) for y in YOE_LABEL]
 
     sals = counts(lambda j: [str(int(bool(j.get("salary"))))])
     sal_opts = [("1", "Listed", sals.get("1", 0)), ("0", "Not listed", sals.get("0", 0))]
@@ -203,6 +224,7 @@ def build_facets(jobs):
         facet_group("type", "Type", type_opts),
         facet_group("cat", "Category", cat_opts),
         facet_group("level", "Level", level_opts),
+        facet_group("yoe", "Experience", yoe_opts),
         facet_group("age", "Posted", age_opts),
         facet_group("sal", "Salary", sal_opts),
         facet_group("state", "State", state_opts),
@@ -275,8 +297,17 @@ PAGE = """<!doctype html>
   .chips {{ display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }}
   .chip {{ background: #20242e; color: #aab0bc; font-size: 10px; padding: 1px 7px; border-radius: 10px; }}
   .chip.lvl {{ background: #2a2a40; color: #bfc4ff; text-transform: capitalize; }}
+  .chip.yoe {{ background: #33262a; color: #e0a2ac; }}
   a.apply {{ background: #2563eb; color: #fff; text-decoration: none; font-size: 13px;
              font-weight: 600; padding: 8px 0; border-radius: 8px; text-align: center; margin-top: 4px; }}
+  .stsel {{ background: #12151c; border: 1px solid #2c313c; color: #9aa0aa; border-radius: 7px;
+            padding: 5px 8px; font-size: 11px; width: 100%; cursor: pointer; }}
+  .card[data-status="applied"] {{ border-color: #2f6b4a; }}
+  .card[data-status="applied"] .stsel {{ color: #5bd6ac; border-color: #2f6b4a; }}
+  .card[data-status="interviewing"] {{ border-color: #8a6d1f; box-shadow: 0 0 0 1px #8a6d1f33; }}
+  .card[data-status="interviewing"] .stsel {{ color: #e0c061; border-color: #8a6d1f; }}
+  .card[data-status="rejected"] {{ opacity: .45; }}
+  .card[data-status="rejected"] .stsel {{ color: #d98f8f; }}
   .nomatch {{ color: #9aa0aa; padding: 30px 0; text-align: center; }}
   .section-h {{ color: #9aa0aa; font-size: 13px; font-weight: 600; text-transform: uppercase;
                 letter-spacing: .6px; margin: 30px 0 12px; }}
@@ -298,6 +329,7 @@ PAGE = """<!doctype html>
     <div class="stat"><b id="stRoles">{jobs_total}</b> roles</div>
     <div class="stat"><b id="stNew">{jobs_new}</b> new</div>
     <div class="stat clickable" id="companiesStat"><b id="stCompanies">{companies_with_jobs}</b> companies &#9662;</div>
+    <div class="stat"><b id="stApplied">0</b> in pipeline</div>
     <div class="stat"><b>{non_us}</b> non-US hidden</div>
     <div class="stat"><b>{companies_failed}</b> boards failed</div>
   </div>
@@ -309,12 +341,21 @@ PAGE = """<!doctype html>
       <option value="new">Sort: new first</option>
       <option value="company">Sort: company A–Z</option>
     </select>
+    <button class="tbtn on" id="freshBtn">Fresh only (&le;30d)</button>
     <button class="tbtn" id="newBtn">New only</button>
     <button class="tbtn" id="clrBtn">Clear filters</button>
+    <button class="tbtn" id="expBtn">Export applications</button>
     <span id="shown"></span>
   </div>
 </header>
 <div class="facets">
+  <div class="fgroup">
+    <span class="flabel">Status</span>
+    <button class="fchip" data-facet="status" data-val="none">Not applied <span class="fct" id="ct-none">0</span></button>
+    <button class="fchip" data-facet="status" data-val="applied">Applied <span class="fct" id="ct-applied">0</span></button>
+    <button class="fchip" data-facet="status" data-val="interviewing">Interviewing <span class="fct" id="ct-interviewing">0</span></button>
+    <button class="fchip" data-facet="status" data-val="rejected">Rejected <span class="fct" id="ct-rejected">0</span></button>
+  </div>
 {facets}
 </div>
 <div class="wrap">
@@ -340,8 +381,31 @@ const stRoles = document.getElementById('stRoles');
 const stNew = document.getElementById('stNew');
 const stCompanies = document.getElementById('stCompanies');
 const facets = {{type:new Set(), cat:new Set(), level:new Set(), state:new Set(),
-                 src:new Set(), age:new Set(), sal:new Set(), company:new Set()}};
-let newOnly = false;
+                 src:new Set(), age:new Set(), sal:new Set(), yoe:new Set(),
+                 status:new Set(), company:new Set()}};
+let newOnly = false, freshOnly = true;
+
+// --- application pipeline state -------------------------------------------
+// Seeded from applications.json at build time, then owned by localStorage so
+// statuses survive across runs. "Export applications" writes the merged set
+// back out as applications.json.
+const STALE_BUCKETS = {stale_buckets};
+const LSKEY = 'jobscope.apps';
+let APPS = Object.assign({{}}, {apps}, JSON.parse(localStorage.getItem(LSKEY) || '{{}}'));
+
+function saveApps() {{ localStorage.setItem(LSKEY, JSON.stringify(APPS)); }}
+
+function setStatus(card, status, stamp) {{
+  const id = card.dataset.id;
+  card.dataset.status = status;
+  card.querySelector('.stsel').value = status;
+  if (status === 'none') {{ delete APPS[id]; return; }}
+  APPS[id] = {{status: status,
+               date: stamp ? new Date().toISOString().slice(0, 10)
+                           : (APPS[id] && APPS[id].date) || '{date}',
+               title: card.dataset.title, company: CNAMES[card.dataset.company] || '',
+               url: card.dataset.url}};
+}}
 
 function vals(card, f) {{
   return f === 'state' ? card.dataset.state.split(' ').filter(Boolean) : [card.dataset[f]];
@@ -351,6 +415,7 @@ function passes(card, skip) {{
   const term = q.value.trim().toLowerCase();
   if (term && !card.dataset.search.includes(term)) return false;
   if (newOnly && card.dataset.new !== '1') return false;
+  if (freshOnly && STALE_BUCKETS.includes(card.dataset.age)) return false;
   for (const f in facets) {{
     if (f === skip || !facets[f].size) continue;
     if (!vals(card, f).some(v => facets[f].has(v))) return false;
@@ -380,6 +445,14 @@ function apply() {{
   stCompanies.textContent = new Set(vis.map(c => c.dataset.company)).size;
   shown.textContent = n + ' / ' + cards.length + ' shown';
   noMatch.classList.toggle('hidden', n !== 0);
+  // Status counts are over cards passing every OTHER filter, so the group
+  // stays multi-selectable like the company panel.
+  ['none', 'applied', 'interviewing', 'rejected'].forEach(s => {{
+    document.getElementById('ct-' + s).textContent =
+      cards.filter(c => passes(c, 'status') && c.dataset.status === s).length;
+  }});
+  document.getElementById('stApplied').textContent =
+    Object.values(APPS).filter(a => a.status !== 'rejected').length;
 }}
 function sortGrid() {{
   const m = sortSel.value;
@@ -409,12 +482,28 @@ cpanel.addEventListener('click', e => {{
   if (facets.company.has(v)) facets.company.delete(v); else facets.company.add(v);
   apply();
 }});
+document.getElementById('freshBtn').addEventListener('click', e => {{
+  freshOnly = !freshOnly; e.target.classList.toggle('on', freshOnly); apply();
+}});
 document.getElementById('clrBtn').addEventListener('click', () => {{
   for (const f in facets) facets[f].clear();
   document.querySelectorAll('.facets .fchip.on').forEach(c => c.classList.remove('on'));
   newOnly = false; document.getElementById('newBtn').classList.remove('on');
+  freshOnly = false; document.getElementById('freshBtn').classList.remove('on');
   q.value = ''; apply();
 }});
+grid.addEventListener('change', e => {{
+  if (!e.target.classList.contains('stsel')) return;
+  setStatus(e.target.closest('.card'), e.target.value, true);
+  saveApps(); apply();
+}});
+document.getElementById('expBtn').addEventListener('click', () => {{
+  const blob = new Blob([JSON.stringify(APPS, null, 2)], {{type: 'application/json'}});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'applications.json'; a.click();
+  URL.revokeObjectURL(a.href);
+}});
+cards.forEach(c => {{ if (APPS[c.dataset.id]) setStatus(c, APPS[c.dataset.id].status, false); }});
 apply();
 </script>
 </body></html>
@@ -463,6 +552,12 @@ def build(date=None, do_open=True):
     cards = "\n".join(card(j) for j in jobs) or ""
     facets = build_facets(jobs) if jobs else ""
     cnames = json.dumps({slug(j["comp"]): j["comp"] for j in jobs if j.get("comp")})
+    apps = {}
+    if APPS_FILE.exists():
+        try:
+            apps = json.loads(APPS_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            print(f"warning: {APPS_FILE.name} is not valid JSON — ignoring it")
 
     empty_section = ""
     if empty:
@@ -491,6 +586,7 @@ def build(date=None, do_open=True):
         companies_with_jobs=len({j["comp"] for j in jobs}),
         non_us=non_us, companies_failed=st.get("companies_failed", 0),
         facets=facets, cards=cards, cnames=cnames,
+        apps=json.dumps(apps), stale_buckets=json.dumps(list(STALE_BUCKETS)),
         empty_section=empty_section, failed_section=failed_section,
     )
     out = run_dir / "index.html"

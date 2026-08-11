@@ -2,9 +2,12 @@
 config/config.yaml
 runs/
 seen_jobs.json
+applications.json
 
 # Python
 __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
+.ruff_cache/
