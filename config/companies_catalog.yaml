@@ -202,14 +202,21 @@ workday:
   - salesforce:wd12:External_Career_Site
   - nvidia:wd5:NVIDIAExternalCareerSite
   - workday:wd5:Workday
-  - leidos:wd5:External
-  - gdit:wd5:External_Career_Site
   # verified live 2026-08-11 — banks/insurers/telecom, where SOC analyst work is
   - keybank:wd5:External_Career_Site
   - pnc:wd5:External
   - tmobile:wd1:External
   - unum:wd1:External
   - vystarcu:wd1:Careers          # Jacksonville FL credit union
+  - bmo:wd3:External
+  - southstatebank:wd5:External
+#
+# Defence contractors are deliberately ABSENT. leidos, gdit and caci all have
+# working boards with hundreds of security roles, but every one of them is
+# clearance-gated, so they survive the title filter, cost a paginated fetch
+# plus a description hydration each, and are then dropped to zero by the
+# clearance rule. Measured: 12 Leidos roles before hydration, 0 after. Add them
+# back only if the config stops filtering on clearance.
 
 # Probed and confirmed DEAD — no public board on that ATS. Don't re-add these
 # without re-probing; they cost a request and a failed-board row every run.
