@@ -900,18 +900,34 @@ function placeTip(e) {
   tip.style.left = Math.max(pad, x) + 'px';
   tip.style.top = Math.max(pad, y) + 'px';
 }
-document.addEventListener('mouseover', e => {
-  const el = e.target.closest('[data-tip]'); if (!el) return;
+// Tooltips wait for a deliberate hover. Firing instantly meant that sweeping
+// the mouse down a 177-row list set off a popup on every row. Once one IS open,
+// moving to a neighbour shows immediately for a moment — reading two rows in a
+// row should not cost two waits.
+const TIP_DELAY = 800, TIP_CHAIN = 500;
+let tipTimer = null, chainUntil = 0, at = { clientX: 0, clientY: 0 };
+
+function showTip(el) {
   tip.innerHTML = el.dataset.tip;
   tip.classList.remove('hidden');
-  placeTip(e);
+  placeTip(at);
   if (el.closest('#sankey')) { fbox.classList.add('dim'); el.classList.add('hot'); }
+}
+document.addEventListener('mouseover', e => {
+  const el = e.target.closest('[data-tip]'); if (!el) return;
+  at = { clientX: e.clientX, clientY: e.clientY };
+  clearTimeout(tipTimer);
+  if (Date.now() < chainUntil) showTip(el);
+  else tipTimer = setTimeout(() => showTip(el), TIP_DELAY);
 });
 document.addEventListener('mousemove', e => {
+  at = { clientX: e.clientX, clientY: e.clientY };
   if (!tip.classList.contains('hidden')) placeTip(e);
 });
 document.addEventListener('mouseout', e => {
   const el = e.target.closest('[data-tip]'); if (!el) return;
+  clearTimeout(tipTimer);
+  if (!tip.classList.contains('hidden')) chainUntil = Date.now() + TIP_CHAIN;
   el.classList.remove('hot');
   fbox.classList.remove('dim');
   tip.classList.add('hidden');
