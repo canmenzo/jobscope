@@ -350,6 +350,26 @@ def build_closed():
     return "\n".join(out)
 
 
+def company_data(raw, jobs):
+    """Every company the run touched, for the Companies sheet.
+
+    Includes the ones that matched nothing — seeing which boards were searched
+    and came back empty is the point; a list of only the hits cannot show that.
+    `g` is slug(name), the same key the company facet filters on.
+    """
+    counts = {}
+    for j in jobs:
+        counts[slug(j["comp"])] = counts.get(slug(j["comp"]), 0) + 1
+    out = [{"n": c["name"], "g": slug(c["name"]),
+            "src": SOURCE_NAME.get(c["source"], c["source"]),
+            "u": c.get("careers_url") or "", "p": c.get("postings") or 0,
+            "m": counts.get(slug(c["name"]), 0),
+            "e": "" if c.get("ok") else (c.get("error") or "fetch failed")}
+           for c in raw]
+    out.sort(key=lambda c: (-c["m"], c["n"].lower()))
+    return out
+
+
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -363,8 +383,9 @@ PAGE = """<!doctype html>
       <button class="tab" data-view="flow">Flow</button>
     </div>
 
-    <a class="brand" href="#" data-tip="Run of __DATE__ &middot; USA &middot; tech only.
-       Nothing is submitted for you.">
+    <a class="brand" href="index.html" data-tip="Run of __DATE__ &middot; USA &middot; tech only.
+       Nothing is submitted for you.<br><b>Click to go back to the start</b> — Board tab,
+       every filter cleared.">
       <svg viewBox="0 0 32 32" aria-hidden="true">
         <circle cx="16" cy="16" r="8.5" fill="none" stroke="currentColor" stroke-width="2.6"/>
         <path d="M16 2.5v6M16 23.5v6M2.5 16h6M23.5 16h6" stroke="currentColor"
@@ -378,7 +399,10 @@ PAGE = """<!doctype html>
     <div class="kpi">
       <span data-tip="Roles passing the filters you have set right now, out of every role this run matched">
         <b id="shown">0</b><i>/</i><b class="tot">__JOBS__</b> shown</span>
-      <span data-tip="Distinct companies across those roles"><b>__COMPANIES__</b> companies</span>
+      <span class="kbtn" id="kCompanies" role="button" tabindex="0"
+            data-tip="Distinct companies across those roles. <b>Click to see every company
+            searched</b> — how many roles each one matched, and a link to its careers page.">
+        <b>__COMPANIES__</b> companies</span>
       <span data-tip="Roles you have moved onto the board (Applied and beyond)"><b id="kTracked">0</b> tracked</span>
       <span class="warn" data-tip="<b>Possible ghost jobs.</b> The req has stayed open unusually long, or the same title keeps getting reposted under a new id. Often an evergreen pipeline rather than a live opening.">
         <b>__GHOSTS__</b> ghosts</span>
@@ -450,6 +474,19 @@ __CLOSED__
     <span>Last refreshed <b>__BUILT__</b></span>
   </div>
 </div>
+
+<div class="ov hidden" id="compOv">
+  <div class="ovbox" role="dialog" aria-label="Companies">
+    <div class="ovhead">
+      <h2>Companies</h2>
+      <span class="ovsub" id="compSub"></span>
+      <input class="ovsearch" id="compQ" placeholder="Search companies&hellip;" autocomplete="off">
+      <button class="ovx" id="compX" data-tip="Close (Esc)">&times;</button>
+    </div>
+    <div class="ovbody" id="compBody"></div>
+  </div>
+</div>
+
 <div class="tip hidden" id="tip"></div>
 <script>__JS__</script>
 </body></html>
@@ -506,6 +543,7 @@ def build(date=None, do_open=True):
 
     js = (JS
           .replace("__JOBS__", json.dumps(jobs_js))
+          .replace("__COMPANY_DATA__", json.dumps(company_data(data["companies"], jobs)))
           .replace("__STAGES__", json.dumps(STAGES))
           .replace("__BOARD_STAGES__", json.dumps(BOARD_STAGES))
           .replace("__CLOSED_STAGES__", json.dumps(CLOSED_STAGES))

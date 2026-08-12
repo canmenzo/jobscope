@@ -92,6 +92,8 @@ button{font-family:inherit}
 .kpi span{cursor:default;transition:color .15s}
 .kpi span:hover{color:var(--ink-2)}
 .kpi .warn b{color:var(--amber)}
+.kpi .kbtn{cursor:pointer}
+.kpi .kbtn:hover b{color:var(--neon-ink);text-shadow:0 0 10px #c026d366}
 
 .tabs{display:flex;gap:3px;padding:3px;background:var(--field);border:1px solid var(--edge-2);
       border-radius:var(--r);z-index:1}
@@ -323,6 +325,51 @@ button{font-family:inherit}
       border-top:1px solid var(--edge)}
 .foot b{font-family:var(--num);color:var(--ink-3);font-weight:400}
 
+/* ------------------------------------------------------- companies sheet */
+/* Opened from the "companies" stat. Every company the run searched, so the
+   empty ones are visible too — coverage is the question this answers. */
+.ov{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
+    padding:38px 24px;background:#03030799;backdrop-filter:blur(3px);
+    animation:fadeUp .16s var(--ease) both}
+.ovbox{width:min(1000px,100%);max-height:100%;display:flex;flex-direction:column;
+       background:var(--panel);border:1px solid var(--edge-2);border-radius:var(--r-lg);
+       box-shadow:0 30px 80px #000d,0 0 0 1px #c026d322,0 0 44px #c026d326;
+       animation:menuIn .2s var(--spring) both}
+.ovhead{display:flex;align-items:center;gap:12px;padding:12px 15px;flex-shrink:0;
+        border-bottom:1px solid var(--edge)}
+.ovhead h2{margin:0;font-size:11px;letter-spacing:1.6px;text-transform:uppercase;
+           color:var(--neon-ink);font-weight:700}
+.ovsub{font-size:11.5px;color:var(--ink-4)}
+.ovsearch{margin-left:auto;width:230px;height:29px;padding:0 10px;font-size:12.5px;color:var(--ink);
+          background:var(--field);border:1px solid var(--edge-2);border-radius:var(--r)}
+.ovsearch::placeholder{color:var(--ink-4)}
+.ovsearch:focus{outline:0;border-color:var(--neon);box-shadow:0 0 0 3px #c026d322}
+.ovx{width:29px;height:29px;display:grid;place-items:center;font-size:17px;line-height:1;cursor:pointer;
+     background:var(--field);border:1px solid var(--edge-2);border-radius:var(--r);color:var(--ink-3)}
+.ovx:hover{border-color:var(--neon);color:var(--neon-ink)}
+.ovbody{overflow-y:auto;padding:12px 15px 16px}
+.cgrp{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-4);
+      font-weight:700;margin:14px 2px 7px}
+.cgrp:first-child{margin-top:0}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:7px}
+.ccard{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:var(--r);
+       background:var(--card);border:1px solid var(--edge);cursor:pointer;
+       transition:transform .16s var(--spring),border-color .16s,box-shadow .16s}
+.ccard:hover{transform:translateY(-2px);border-color:var(--neon);box-shadow:0 0 18px #c026d33d}
+.ccard.dim{opacity:.55;cursor:default}
+.ccard.dim:hover{transform:none;border-color:var(--edge);box-shadow:none}
+.cinfo{flex:1;min-width:0}
+.cname{font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;
+       text-overflow:ellipsis}
+.cmeta{font-size:10px;color:var(--ink-4);margin-top:2px;font-family:var(--num);
+       white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmeta.err{color:#f87171}
+.ccount{font-family:var(--num);font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px;
+        color:var(--cyan-ink);background:#03181f;border:1px solid #0e5c72}
+.ccard.dim .ccount{color:var(--ink-4);background:var(--field);border-color:var(--edge-2)}
+.cgo{color:var(--ink-4);text-decoration:none;font-size:12px;padding:2px 3px}
+.cgo:hover{color:var(--neon-ink);text-shadow:0 0 10px #c026d366}
+
 .tip{position:fixed;z-index:90;max-width:330px;padding:9px 12px;font-size:12px;line-height:1.55;
      color:var(--ink-2);background:#0a0a13;border:1px solid var(--edge-2);border-radius:9px;
      pointer-events:none;box-shadow:0 12px 34px #000d,0 0 22px #c026d333;
@@ -430,6 +477,7 @@ const FACET_DEFS = __FACET_DEFS__;
 const FACET_META = __FACET_META__;   // {field: {order:[], labels:{}}}
 const PRIMARY_FACETS = __PRIMARY_FACETS__;
 const STALE_BUCKETS = __STALE_BUCKETS__;
+const COMPANIES = __COMPANY_DATA__;  // every company searched, matched or not
 
 const LSKEY = 'jobscope.apps', VIEWKEY = 'jobscope.view';
 const $ = s => document.querySelector(s);
@@ -1035,6 +1083,74 @@ function exportVisible() {
 $('#csvPipe').addEventListener('click', exportPipeline);
 $('#csvAll').addEventListener('click', exportVisible);
 
+/* ------------------------------------------------------- companies sheet */
+
+const compOv = $('#compOv'), compQ = $('#compQ'), compBody = $('#compBody');
+
+function compCard(c) {
+  const dim = c.m ? '' : ' dim';
+  const bits = [c.src];
+  if (c.p) bits.push(c.p + ' open');
+  const meta = c.e ? `<div class="cmeta err">${c.src} &middot; ${c.e}</div>`
+                   : `<div class="cmeta">${bits.join(' &middot; ')}</div>`;
+  const go = c.u ? `<a class="cgo" href="${c.u}" target="_blank" rel="noopener"
+                       data-tip="Open the careers page">&#8599;</a>` : '';
+  return `<div class="ccard${dim}" data-slug="${c.g}" data-name="${c.n}">
+    <div class="cinfo"><div class="cname">${c.n}</div>${meta}</div>
+    <span class="ccount">${c.m}</span>${go}</div>`;
+}
+
+function renderCompanies() {
+  const term = compQ.value.trim().toLowerCase();
+  const list = COMPANIES.filter(c => !term || c.n.toLowerCase().includes(term));
+  const hit = list.filter(c => c.m > 0);
+  const miss = list.filter(c => !c.m && !c.e);
+  const bad = list.filter(c => !c.m && c.e);
+  let out = '';
+  const grp = (lab, arr) => {
+    if (!arr.length) return;
+    out += `<div class="cgrp">${lab} &middot; ${arr.length}</div>`
+         + `<div class="cgrid">${arr.map(compCard).join('')}</div>`;
+  };
+  grp('With matching roles &mdash; click to filter the list', hit);
+  grp('Searched, nothing matched', miss);
+  grp('Could not be fetched', bad);
+  compBody.innerHTML = out || '<div class="fddempty">No company matches that name.</div>';
+  $('#compSub').textContent = COMPANIES.length + ' searched \\u00b7 '
+    + COMPANIES.filter(c => c.m).length + ' with roles';
+}
+
+function openCompanies() {
+  compQ.value = '';
+  renderCompanies();
+  compOv.classList.remove('hidden');
+  compQ.focus();
+}
+const closeCompanies = () => compOv.classList.add('hidden');
+
+$('#kCompanies').addEventListener('click', openCompanies);
+$('#kCompanies').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCompanies(); }
+});
+$('#compX').addEventListener('click', closeCompanies);
+compOv.addEventListener('click', e => { if (e.target === compOv) closeCompanies(); });
+compQ.addEventListener('input', renderCompanies);
+compBody.addEventListener('click', e => {
+  if (e.target.closest('.cgo')) return;              // the careers link is its own thing
+  const card = e.target.closest('.ccard');
+  if (!card || card.classList.contains('dim')) return;
+  facets.company.clear();
+  facets.company.add(card.dataset.slug);
+  q.value = '';
+  closeCompanies();
+  showTab('board');
+  render();
+  // Its roles can still all be stale or already tracked, and a list that goes
+  // empty right after a click reads as a broken filter rather than an active one.
+  if ($('#shown').textContent === '0')
+    toast(card.dataset.name + ': every role is hidden by your other filters', null);
+});
+
 /* ----------------------------------------------------------------- views */
 
 function showTab(name) {
@@ -1140,6 +1256,25 @@ $('#clrBtn').addEventListener('click', () => {
   ['freshBtn', 'newBtn', 'ghostBtn'].forEach(i => $('#' + i).classList.remove('on'));
   q.value = ''; render();
 });
+// The wordmark is the way back to the start: default view, nothing filtered.
+// ctrl/middle-click still follows the href and reloads the page instead.
+$('.brand').addEventListener('click', e => {
+  if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+  e.preventDefault();
+  closeCompanies();
+  closeMenus();
+  for (const f in facets) facets[f].clear();
+  newOnly = hideGhosts = false; freshOnly = true;
+  q.value = '';
+  sortKey = 'score'; sortDir = -1;
+  $('#freshBtn').classList.add('on');
+  ['newBtn', 'ghostBtn'].forEach(i => $('#' + i).classList.remove('on'));
+  $$('.lhead span').forEach(x => x.classList.toggle('sorted', x.dataset.sort === sortKey));
+  sortRows();
+  showTab('board');
+  render();
+  rowsEl.scrollTop = 0;
+});
 $('.lhead').addEventListener('click', e => {
   const s = e.target.closest('[data-sort]'); if (!s) return;
   const k = s.dataset.sort;
@@ -1152,8 +1287,8 @@ addEventListener('resize', () => {
   if (!$('#viewFlow').classList.contains('hidden')) drawSankey();
 });
 addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeMenus(); tip.classList.add('hidden'); }
-  if (e.key === '/' && e.target !== q) { e.preventDefault(); q.focus(); }
+  if (e.key === 'Escape') { closeMenus(); closeCompanies(); tip.classList.add('hidden'); }
+  if (e.key === '/' && e.target !== q && e.target !== compQ) { e.preventDefault(); q.focus(); }
 });
 
 repairHistory();
