@@ -354,13 +354,16 @@ button{font-family:inherit}
           background:var(--field);border:1px solid var(--edge-2);border-radius:var(--r)}
 .ovsearch::placeholder{color:var(--ink-4)}
 .ovsearch:focus{outline:0;border-color:var(--neon);box-shadow:0 0 0 3px #c026d322}
-.ovx{width:29px;height:29px;display:grid;place-items:center;font-size:17px;line-height:1;cursor:pointer;
+/* The cross is drawn, not typed: the multiplication-sign glyph sits on the
+   font's math axis, so centring the text box still leaves it visibly low. */
+.ovx{width:29px;height:29px;position:relative;padding:0;font-size:0;cursor:pointer;
      background:var(--field);border:1px solid var(--edge-2);border-radius:var(--r);color:var(--ink-3)}
+.ovx::before,.ovx::after{content:'';position:absolute;top:50%;left:50%;width:12px;height:1.6px;
+     border-radius:1px;background:currentColor}
+.ovx::before{transform:translate(-50%,-50%) rotate(45deg)}
+.ovx::after{transform:translate(-50%,-50%) rotate(-45deg)}
 .ovx:hover{border-color:var(--neon);color:var(--neon-ink)}
 .ovbody{overflow-y:auto;padding:12px 15px 16px}
-.cgrp{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-4);
-      font-weight:700;margin:14px 2px 7px}
-.cgrp:first-child{margin-top:0}
 .cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:7px}
 .ccard{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:var(--r);
        background:var(--card);border:1px solid var(--edge);cursor:pointer;
@@ -1143,15 +1146,24 @@ $('#jsonApps').addEventListener('click', exportApps);
 
 const compOv = $('#compOv'), compQ = $('#compQ'), compBody = $('#compBody');
 
+// One list, no headings. COMPANY_DATA already arrives sorted by match count, so
+// the companies you can click sit at the top and the empty ones trail off below;
+// each card says on its own face why it has nothing, which the old
+// matched/not-matched split only implied.
 function compCard(c) {
   const dim = c.m ? '' : ' dim';
-  const bits = [c.src];
-  if (c.p) bits.push(c.p + ' open');
-  const meta = c.e ? `<div class="cmeta err">${c.src} &middot; ${c.e}</div>`
-                   : `<div class="cmeta">${bits.join(' &middot; ')}</div>`;
+  const why = c.e ? c.e
+            : c.m ? c.p + ' open'
+            : c.p ? '0 of ' + c.p + ' roles fit your filters'
+                  : 'no open roles';
+  const meta = `<div class="cmeta${c.e ? ' err' : ''}">${c.src} &middot; ${why}</div>`;
+  const tip = c.m ? 'Click to show only this company&rsquo;s roles'
+            : c.e ? 'This board could not be fetched, so none of its roles are in the run.'
+                  : 'Searched, but nothing here matched your titles and filters &mdash;'
+                    + ' there is nothing to filter to.';
   const go = c.u ? `<a class="cgo" href="${c.u}" target="_blank" rel="noopener"
                        data-tip="Open the careers page">&#8599;</a>` : '';
-  return `<div class="ccard${dim}" data-slug="${c.g}" data-name="${c.n}">
+  return `<div class="ccard${dim}" data-slug="${c.g}" data-name="${c.n}" data-tip="${tip}">
     <div class="cinfo"><div class="cname">${c.n}</div>${meta}</div>
     <span class="ccount">${c.m}</span>${go}</div>`;
 }
@@ -1159,21 +1171,11 @@ function compCard(c) {
 function renderCompanies() {
   const term = compQ.value.trim().toLowerCase();
   const list = COMPANIES.filter(c => !term || c.n.toLowerCase().includes(term));
-  const hit = list.filter(c => c.m > 0);
-  const miss = list.filter(c => !c.m && !c.e);
-  const bad = list.filter(c => !c.m && c.e);
-  let out = '';
-  const grp = (lab, arr) => {
-    if (!arr.length) return;
-    out += `<div class="cgrp">${lab} &middot; ${arr.length}</div>`
-         + `<div class="cgrid">${arr.map(compCard).join('')}</div>`;
-  };
-  grp('With matching roles &mdash; click to filter the list', hit);
-  grp('Searched, nothing matched', miss);
-  grp('Could not be fetched', bad);
-  compBody.innerHTML = out || '<div class="fddempty">No company matches that name.</div>';
+  compBody.innerHTML = list.length
+    ? `<div class="cgrid">${list.map(compCard).join('')}</div>`
+    : '<div class="fddempty">No company matches that name.</div>';
   $('#compSub').textContent = COMPANIES.length + ' searched \\u00b7 '
-    + COMPANIES.filter(c => c.m).length + ' with roles';
+    + COMPANIES.filter(c => c.m).length + ' with roles you can open';
 }
 
 function openCompanies() {
