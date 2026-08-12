@@ -117,6 +117,52 @@ greenhouse:
   - toast
   - torq
   - veracode
+  # AI labs / AI-native companies — verified live 2026-08-11
+  - xai
+  - togetherai
+  - arizeai
+  - snorkelai
+  - assemblyai
+  - inflectionai
+  - imbue
+  - figure
+  - galileo
+  - vannevarlabs
+  - hiddenlayer          # AI/ML security
+  # Verified live 2026-08-12 — the deliberately UN-glamorous half of the list.
+  # Everything above this line is a well-known tech or security brand, which is
+  # why the dashboard kept returning the same fifty logos. These are MSSPs,
+  # VARs, healthcare, fintech, insurance and retail: smaller teams, plainer job
+  # titles, and far more roles that a two-year analyst can actually clear.
+  - guidepointsecurity   # MSSP
+  - threatlocker         # endpoint vendor, Orlando FL
+  - myriad360            # VAR / integrator
+  - dnsfilter
+  - dropzoneai
+  - digitalhands         # MSSP, Tampa FL
+  - carvana
+  - doordashusa
+  - remotecom
+  - justworks
+  - cloverhealth
+  - zocdoc
+  - omadahealth
+  - komodohealth
+  - flatironhealth
+  - healthverity
+  - tebra
+  - billcom
+  - melio
+  - oportun
+  - upgrade
+  - pathward
+  - ethoslife
+  - alloy
+  - cargurus
+  - motive
+  - tds                  # regional telecom
+  - sheetz
+  - current
 
 lever:
   - alloy
@@ -128,6 +174,15 @@ lever:
   - shieldai
   - spotify
   - swordhealth
+  # Verified live 2026-08-12 — mid-market, see the note under greenhouse.
+  - cyderes              # MSSP
+  - avertium             # MSSP
+  - includedhealth
+  - aledade
+  - gopuff
+  - zoox
+  - olo
+  - prosper
 
 ashby:
   - 1password
@@ -168,6 +223,39 @@ ashby:
   - oso
   - persona
   - warp
+  # AI labs / AI-native companies — verified live 2026-08-11
+  - perplexity            # the old `perplexityai` slug is dead; this one works
+  - cerebras
+  - anyscale
+  - cognition
+  - poolside
+  - factory
+  - lovable               # ashby only — greenhouse/lovable is an unrelated IT co
+  - writer
+  - deepgram
+  - character
+  - suno
+  - pika
+  - llamaindex
+  - braintrust
+  - abridge
+  - openevidence
+  - mercor
+  - listenlabs
+  - sesame
+  - physicalintelligence
+  - distyl                # forward-deployed AI delivery
+  - unstructured
+  - witnessai             # AI security
+  # Verified live 2026-08-12 — mid-market, see the note under greenhouse.
+  - todyl                 # MSP security platform
+  - socure
+  - sardine
+  - lightspeedhq
+  - medely
+  - cedar
+  - dave
+  - shift
 
 # SmartRecruiters + Recruitee fetchers are supported (see fetch.py) but ship
 # empty: few US-tech companies use them with a public board. Add a verified slug
@@ -181,8 +269,11 @@ smartrecruiters:
   # verified live 2026-08-10
   - Experian
   - Visa
+  # verified live 2026-08-12
+  - Alorica
 
-recruitee: []
+recruitee:
+  - edifecs
 
 # Workday tenants. Slug format is "tenant:wdN:site" — all three parts come from
 # the careers URL, e.g. https://capitalone.wd12.myworkdayjobs.com/Capital_One
@@ -230,8 +321,11 @@ workday:
 #     figmadesign
 #   lever: netflix (404 as of 2026-08-10) sentinelone attentive veza cequence
 #     netlify wiz kandji abnormalsecurity
-#   ashby: wiz tailscale arcticwolf teleport anduril scaleai perplexityai
+#   ashby: wiz tailscale arcticwolf teleport anduril scaleai
 #     abnormalsecurity clerk corgea pomerium spec truffle nightfall
+#     lakera protectai promptsecurity pillar magic sourcegraph augment
+#     snorkel galileo clay chroma qdrant anysphere skild figure runwayml
+#   (perplexityai was dead; the live slug is `perplexity` — now in the list)
 #   smartrecruiters: McAfee Bosch Ubisoft Avery
 # Note: SmartRecruiters returns HTTP 200 with 0 postings for a bad slug rather
 # than a 404 — validate those by posting count, not status code.

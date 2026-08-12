@@ -185,6 +185,10 @@ button{font-family:inherit}
            box-shadow:0 0 10px #fbbf2426,inset 0 0 8px #fbbf2410}
 .sc.reach{color:#f87171;background:#1a0707;border-color:#6b2020;
           box-shadow:0 0 10px #f8717126,inset 0 0 8px #f8717110}
+/* A posting that stated no years, no salary and carried no readable body. The
+   score is a guess made politely, so the frame is dashed rather than solid —
+   the colour still says where it landed, the border says don't lean on it. */
+.sc.thin{border-style:dashed;opacity:.82}
 .row:hover .sc.safe{box-shadow:0 0 14px #4ade8047}
 .row:hover .sc.target{box-shadow:0 0 14px #fbbf2447}
 .row:hover .sc.reach{box-shadow:0 0 14px #f8717147}

@@ -40,7 +40,11 @@ APPS_FILE = SKILL_ROOT / "applications.json"
 
 SOURCE_NAME = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
                "smartrecruiters": "SmartRecruiters", "recruitee": "Recruitee",
-               "workday": "Workday"}
+               "workday": "Workday",
+               # Broad, query-based sources — these bring in employers that are
+               # not in the catalog, so filtering on them shows you the roles a
+               # curated list of tech boards can never surface.
+               "muse": "The Muse", "adzuna": "Adzuna", "usajobs": "USAJOBS"}
 LEVEL_ORDER = ["intern", "junior", "associate", "entry", "senior", "lead",
                "staff", "principal", "manager", "director", "vp", "head", "none"]
 
@@ -92,6 +96,9 @@ SAL_LABEL = {"1": "Listed", "0": "Not listed"}
 SPON_LABEL = {"yes": "Sponsors visas", "no": "Will not sponsor",
               "": "Not stated"}
 STALE_DAYS = 60
+# Below this share of readable fit signals, mark the score as a guess. Set just
+# under the "salary not listed" case (0.9), which is too common to be a warning.
+THIN_CONFIDENCE = 0.8
 GHOST_OPEN_DAYS = 45
 
 def fit_band(fit):
@@ -239,6 +246,15 @@ def row(j):
         score_tip = ""
     else:
         why = "; ".join(j.get("fit_reasons") or []) or "nothing holding it back"
+        conf = j.get("fit_confidence")
+        # A score built on half a posting is worth saying out loud, so a high
+        # number that only means "we couldn't read anything bad" is legible.
+        # Only a real gap earns the marker: most postings simply omit salary,
+        # and flagging 60% of the list would make the marker mean nothing.
+        if conf is not None and conf < 1:
+            why += f" — read {conf:.0%} of the usual signals"
+            if conf < THIN_CONFIDENCE:
+                band += " thin"
         score_tip = (f' data-tip="<b>{fit_band(j["fit"])} &middot; relevance '
                      f'{j.get("relevance", j["score"])} &middot; fit {j["fit"]}'
                      f'</b><br>{esc(why)}"')

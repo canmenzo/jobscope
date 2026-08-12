@@ -41,3 +41,27 @@ freshness: true
 # Downrank postings demanding meaningfully more experience than you have.
 # -5 relevance per year above this, capped at -20. Set 0 to disable.
 max_yoe: 0
+
+# Broad sources search by ROLE instead of by company, so they surface employers
+# no hand-curated catalog will ever contain — regional banks, hospital systems,
+# MSPs, universities, agencies. Turn these on if the catalog feels like it only
+# returns famous tech companies.
+broad_sources:
+  muse: true            # The Muse public API. No key needed.
+  # Per-category page budgets, if the default sweep is too wide or too narrow:
+  # muse:
+  #   Computer and IT: 79
+  #   Software Engineering: 40
+
+  adzuna: false         # free key at https://developer.adzuna.com/
+  # adzuna_app_id: "..."
+  # adzuna_app_key: "..."
+
+  usajobs: false        # free key at https://developer.usajobs.gov/apirequest/
+  # usajobs_email: "you@example.com"   # sent as User-Agent, per their docs
+  # usajobs_key: "..."
+
+# Phrases the query-based sources search for. Defaults to `titles` above.
+# broad_queries:
+#   - SOC Analyst
+#   - Security Analyst

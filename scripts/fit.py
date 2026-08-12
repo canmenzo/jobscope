@@ -7,8 +7,8 @@ question: "would they actually interview you?"
 
 Fit is 0-100, built from four components and driven entirely by
 `config/profile.yaml` (written during setup — see SKILL.md). With no profile
-file, `fit_enabled` is False and the pipeline falls back to pure relevance, so
-the tool still works for someone who hasn't onboarded.
+file, the pipeline falls back to pure relevance, so the tool still works for
+someone who hasn't onboarded.
 
   EXPERIENCE (40) — the posting's stated years vs yours. At or under your years
                     is full marks; each year above costs, and the cost is
@@ -16,15 +16,36 @@ the tool still works for someone who hasn't onboarded.
                     than "4+ years" when you have 3.
   SENIORITY  (25) — the title's level vs the levels you are targeting. One step
                     up is a stretch, two steps up is a different job.
-  SKILLS     (25) — how much of your toolkit the posting actually asks for.
-                    Rewards overlap; never punishes a short posting.
+  SKILLS     (25) — how much of your toolkit the posting actually asks for,
+                    weighted by how RARE each skill is in this run's corpus.
   PAY BAND   (10) — a listed floor far above your target band is a strong hint
                     the role is pitched well above you, even when the title is
                     coy about it.
 
-Every component returns (points, reason) so the UI can explain a low score
-instead of just asserting it.
+Two rules keep the number honest, and both exist because the first version of
+this file was far too generous:
+
+  MISSING DATA IS NOT GOOD NEWS. Roughly half of all postings state no years
+  bar and no salary. The old scorer handed out 72% of the experience weight and
+  70% of the pay weight for saying nothing, so the least informative postings
+  floated to the top. Now an unknown component is dropped from the denominator
+  entirely and the result is shrunk toward a neutral 50 in proportion to how
+  much we could not read — see `score_fit`. A missing years bar additionally
+  falls back to what the TITLE implies (`LEVEL_YOE`), because "Sr <anything>"
+  telling you nothing about years does not make it a two-year job.
+
+  COMMON SKILLS ARE NOT EVIDENCE. `python`, `git`, `docker` and `sql` appear in
+  almost every engineering posting, so counting raw hits let any generic
+  engineering role claim a full skills score. `build_skill_idf` measures how
+  often each of your skills actually occurs across the run's postings and
+  weights the rare ones (`kql`, `sigma`, `crowdstrike`) far above the ubiquitous
+  ones. The normaliser is the corpus's own 85th-percentile match weight, so
+  "full marks" means "in the top decile of this pool", not "mentioned Python".
+
+Every component returns (points, weight, reason) so the UI can explain a low
+score instead of just asserting it.
 """
+import math
 import re
 
 # Ladder used to compare a posting's level with the levels you target.
@@ -34,11 +55,31 @@ LADDER_POS = {name: i for i, name in enumerate(LADDER)}
 # score.py reports "" for an unlevelled title; treat that as mid-band.
 DEFAULT_LEVEL = "mid"
 
+# Years a title implies when the description names no bar. Used as a fallback
+# prior, never to override a stated requirement.
+LEVEL_YOE = {"intern": 0, "entry": 0, "junior": 1, "associate": 1, "mid": 3,
+             "senior": 5, "lead": 7, "staff": 8, "principal": 10, "manager": 7,
+             "director": 12, "vp": 15, "head": 15}
+
 W_YEARS, W_LEVEL, W_SKILLS, W_PAY = 40, 25, 25, 10
 # Fit awarded to a role that explicitly rules out sponsorship, when the profile
 # needs it. Low enough to sink below everything reachable, not zero — the score
 # floor is reserved for "we could not read this at all".
 SPONSOR_BLOCKED = 5
+# What an unreadable component defaults to. 50 = "no opinion", so a posting we
+# know nothing about lands mid-pack instead of near the top.
+NEUTRAL = 50.0
+# Percentile of the corpus's skill-match weight that counts as a full score,
+# and the floor under it in typical-rarity skills (see build_skill_idf).
+SKILL_PCTL = 0.85
+SKILL_FLOOR_SKILLS = 2
+# Below this many postings the corpus is too small to calibrate against.
+IDF_MIN_DOCS = 40
+# Shortest text we will read a skills verdict out of. Some sources hand back no
+# description at all (SmartRecruiters) and aggregators hand back a truncated
+# teaser; scoring those as "mentions none of your tools" would punish a posting
+# for the shape of its API. Below this they count as unreadable instead.
+MIN_SKILL_TEXT = 400
 
 
 def _norm(s):
@@ -62,22 +103,81 @@ def load_profile(raw):
         "salary_target": float(raw.get("salary_target") or 0),
         "stretch_ok": bool(raw.get("stretch_ok", True)),
         "needs_sponsorship": bool(raw.get("needs_sponsorship", False)),
+        "idf": {}, "skill_target": 0.0,
     }
 
 
-def _years_points(job_yoe, years):
+# ---------------------------------------------------------------- corpus IDF
+
+def build_skill_idf(profile, descriptions):
+    """Calibrate the skills component against the postings we actually pulled.
+
+    Two numbers come out of one pass over the corpus and are stashed on the
+    profile:
+
+      idf[skill]    inverse document frequency — a skill in 60% of postings is
+                    worth almost nothing, one in 2% is worth a lot.
+      skill_target  the 85th-percentile weighted match across the corpus, i.e.
+                    what a genuinely strong match looks like in THIS pool. A
+                    fixed target can't work: it depends entirely on whether the
+                    run is full of security roles or full of retail roles.
+
+    With too few documents to calibrate, both stay empty and `_skill_points`
+    falls back to the old count-based behaviour.
+    """
+    skills = profile.get("skills") or []
+    docs = [_norm(d) for d in descriptions if d]
+    if not skills or len(docs) < IDF_MIN_DOCS:
+        profile["idf"], profile["skill_target"] = {}, 0.0
+        return profile
+
+    n = len(docs)
+    matchers = {s: _skill_re(s) for s in skills}
+    hits_per_doc = []
+    df = dict.fromkeys(skills, 0)
+    for doc in docs:
+        present = [s for s, rx in matchers.items() if rx.search(doc)]
+        for s in present:
+            df[s] += 1
+        hits_per_doc.append(present)
+
+    # +1 smoothing keeps a skill nobody asks for from dominating outright.
+    idf = {s: math.log((n + 1) / (df[s] + 1)) + 0.05 for s in skills}
+    weights = sorted(sum(idf[s] for s in present) for present in hits_per_doc)
+    target = weights[min(len(weights) - 1, int(len(weights) * SKILL_PCTL))]
+
+    # Guard against a corpus so uniform that the percentile just measures the
+    # baseline everyone shares — then "top decile" would mean "said Python".
+    # Two typical-rarity skills is the least a full score may cost. On a real
+    # mixed run this sits below the percentile and never binds.
+    median_idf = sorted(idf.values())[len(idf) // 2]
+    profile["idf"] = idf
+    profile["skill_target"] = max(target, SKILL_FLOOR_SKILLS * median_idf)
+    return profile
+
+
+# ------------------------------------------------------------- components
+# Each returns (points, weight, reason). weight == 0 means "we could not read
+# this" — the component is dropped from the denominator rather than guessed at.
+
+def _years_points(job_yoe, level, years):
+    inferred = ""
     if not job_yoe:
-        return W_YEARS * 0.72, ""          # unstated: mildly optimistic, not blind
+        job_yoe = LEVEL_YOE.get((level or "").lower())
+        if job_yoe is None:
+            return 0.0, 0.0, ""          # no bar stated, no level to infer from
+        inferred = f"no years stated; a {level} title usually means ~{job_yoe}"
     gap = job_yoe - years
     if gap <= 0:
-        return W_YEARS, ""
+        return W_YEARS, W_YEARS, inferred
+    why = inferred or f"wants {job_yoe}+ yrs (you have {years:g})"
     if gap <= 1:
-        return W_YEARS * 0.80, f"wants {job_yoe}+ yrs (you have {years:g})"
+        return W_YEARS * 0.80, W_YEARS, why
     if gap <= 2:
-        return W_YEARS * 0.55, f"wants {job_yoe}+ yrs (you have {years:g})"
+        return W_YEARS * 0.55, W_YEARS, why
     if gap <= 4:
-        return W_YEARS * 0.25, f"wants {job_yoe}+ yrs (you have {years:g})"
-    return 0.0, f"wants {job_yoe}+ yrs (you have {years:g})"
+        return W_YEARS * 0.25, W_YEARS, why
+    return 0.0, W_YEARS, why
 
 
 def _level_points(level, targets):
@@ -85,64 +185,106 @@ def _level_points(level, targets):
     if lvl not in LADDER_POS:
         lvl = DEFAULT_LEVEL
     if lvl in targets:
-        return W_LEVEL, ""
+        return W_LEVEL, W_LEVEL, ""
     pos = LADDER_POS[lvl]
     best = min(LADDER_POS.get(t, LADDER_POS[DEFAULT_LEVEL]) for t in targets)
     top = max(LADDER_POS.get(t, LADDER_POS[DEFAULT_LEVEL]) for t in targets)
-    if pos < best:                          # more junior than you want
-        return W_LEVEL * 0.85, f"{lvl} role, below your target"
+    if pos < best:
+        # More junior than you want. One rung down is a fine safety school; an
+        # internship when you have years behind you is a different career.
+        down = best - pos
+        if down <= 1:
+            return W_LEVEL * 0.85, W_LEVEL, ""
+        if down <= 2:
+            return W_LEVEL * 0.60, W_LEVEL, f"{lvl} role, below your target"
+        return W_LEVEL * 0.30, W_LEVEL, f"{lvl} role, well below your target"
     step = pos - top
     if step <= 1:
-        return W_LEVEL * 0.55, f"{lvl} level, one step up"
+        return W_LEVEL * 0.55, W_LEVEL, f"{lvl} level, one step up"
     if step <= 2:
-        return W_LEVEL * 0.25, f"{lvl} level, a stretch"
-    return 0.0, f"{lvl} level, well above your target"
+        return W_LEVEL * 0.25, W_LEVEL, f"{lvl} level, a stretch"
+    return 0.0, W_LEVEL, f"{lvl} level, well above your target"
 
 
-def _skill_points(text, skills, certs):
-    if not skills:
-        return W_SKILLS * 0.6, ""
+def _skill_points(text, profile):
+    skills = profile.get("skills") or []
+    if not skills or len(text.strip()) < MIN_SKILL_TEXT:
+        return 0.0, 0.0, ""
+    idf, target = profile.get("idf") or {}, profile.get("skill_target") or 0.0
     hits = [s for s in skills if _skill_re(s).search(text)]
-    cert_hits = [c for c in certs if _skill_re(c).search(text)]
-    # Overlap saturates: matching 6 of your tools is already a strong signal.
-    frac = min(1.0, len(hits) / max(3.0, min(len(skills), 8)))
-    pts = W_SKILLS * (0.25 + 0.75 * frac)
+    cert_hits = [c for c in (profile.get("certifications") or [])
+                 if _skill_re(c).search(text)]
+
+    if idf and target > 0:
+        got = sum(idf.get(s, 0.0) for s in hits)
+        frac = min(1.0, got / target)
+        # No floor here: the whole point is that a posting asking for none of
+        # your distinctive tools should score near zero on skills.
+        pts = W_SKILLS * frac
+    else:
+        # Uncalibrated fallback: saturating hit count, as the original did.
+        frac = min(1.0, len(hits) / max(3.0, min(len(skills), 8)))
+        pts = W_SKILLS * (0.25 + 0.75 * frac)
+
     if cert_hits:
         pts = min(W_SKILLS, pts + 2)
-    if not hits:
-        return pts, "none of your listed tools mentioned"
-    return pts, ""
+    why = ""
+    if pts < W_SKILLS * 0.35:
+        why = ("mentions none of your specialist tools" if not hits
+               else "only generic tooling overlap (" + ", ".join(hits[:3]) + ")")
+    return pts, W_SKILLS, why
 
 
 def _pay_points(salary_low, target):
     if not target or not salary_low:
-        return W_PAY * 0.7, ""
+        return 0.0, 0.0, ""
     ratio = salary_low / target
     if ratio <= 1.35:
-        return W_PAY, ""
+        return W_PAY, W_PAY, ""
     if ratio <= 1.8:
-        return W_PAY * 0.5, f"pays from ${salary_low:,.0f} — likely pitched above you"
-    return 0.0, f"pays from ${salary_low:,.0f} — well above your band"
+        return W_PAY * 0.5, W_PAY, f"pays from ${salary_low:,.0f} — likely pitched above you"
+    return 0.0, W_PAY, f"pays from ${salary_low:,.0f} — well above your band"
 
+
+# ------------------------------------------------------------------ scoring
 
 def score_fit(job, profile):
     """Return (fit 0-100, [reasons]) for one scored job dict."""
     text = _norm((job.get("title") or "") + "\n" + (job.get("description") or ""))
+
+    if profile.get("needs_sponsorship") and job.get("sponsorship") == "no":
+        return SPONSOR_BLOCKED, ["employer states it cannot sponsor visas"]
+
     reasons = []
-    total = 0.0
-    for pts, why in (
-        _years_points(job.get("yoe"), profile["years"]),
+    got = weight = 0.0
+    for pts, w, why in (
+        _years_points(job.get("yoe"), job.get("level"), profile["years"]),
         _level_points(job.get("level"), profile["target_levels"]),
-        _skill_points(text, profile["skills"], profile["certifications"]),
+        _skill_points(text, profile),
         _pay_points(job.get("salary_low"), profile["salary_target"]),
     ):
-        total += pts
+        got += pts
+        weight += w
         if why:
             reasons.append(why)
+
+    total_weight = W_YEARS + W_LEVEL + W_SKILLS + W_PAY
+    if weight <= 0:
+        return int(NEUTRAL), ["nothing readable in this posting"]
+
+    # Shrink toward "no opinion" in proportion to what we could not read, so a
+    # posting with no years bar, no salary and no description can never present
+    # as a confident match.
+    confidence = weight / total_weight
+    fit = (got / weight) * 100.0 * confidence + NEUTRAL * (1 - confidence)
+    job["fit_confidence"] = round(confidence, 2)
+
+    if confidence < 0.6:
+        reasons.append(f"thin posting — only {confidence:.0%} of the signals were readable")
     if profile.get("needs_sponsorship") and job.get("sponsorship") == "yes":
-        total = min(100.0, total + 4)
+        fit = min(100.0, fit + 4)
         reasons.append("sponsors visas")
-    return int(round(max(0.0, min(100.0, total)))), reasons
+    return int(round(max(0.0, min(100.0, fit)))), reasons
 
 
 def blend(relevance, fit, weight=0.55):

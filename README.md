@@ -4,9 +4,10 @@
 
 A Claude Code skill that runs a **USA-only, tech-only** job search end to end:
 
-1. Pulls live postings from **legal, official ATS JSON APIs** — Greenhouse,
-   Lever, Ashby, SmartRecruiters, Recruitee and Workday. (No LinkedIn/Indeed
-   scraping.)
+1. Pulls live postings from **legal, official JSON APIs** — the ATS boards
+   (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workday) plus
+   role-based job-search APIs (The Muse, Adzuna, USAJOBS) that reach employers
+   no curated catalog contains. (No LinkedIn/Indeed scraping.)
 2. Filters to USA tech roles in your chosen sub-sectors/titles (drops non-US,
    non-tech, and clearance-required roles).
 3. Scores each role 0-100 on **how good it is for you** — blending relevance
@@ -238,6 +239,26 @@ matches. Fit is the missing half, computed from `config/profile.yaml`:
 | Skills | 25 | How much of your toolkit the posting actually names |
 | Pay band | 10 | A listed floor far above your target signals a senior role |
 
+Two rules stop fit from flattering a posting:
+
+**Missing data is not good news.** About half of all postings state no years and
+no salary. An earlier version handed out 72% of the experience weight and 70% of
+the pay weight for saying nothing, so the least informative listings floated to
+the top — a customer-facing "Sr Forward Deployed Engineer" with no stated bar
+scored 90 to a 2.5-year analyst. Now an unreadable component is dropped from the
+denominator and the result is shrunk toward a neutral 50 in proportion to what
+could not be read; an unstated years bar falls back to what the title implies
+(senior ⇒ ~5 years). The same posting now scores 78, and the tooltip says why.
+Score chips built on under 80% of the signals are drawn with a dashed border.
+
+**Common skills are not evidence.** `python`, `git` and `docker` appear in
+almost every engineering posting, so counting raw hits let any generic role max
+out the skills component. Each run measures how often each of your skills
+actually occurs across the postings it pulled and weights the rare ones
+accordingly, with "full marks" pegged to the top decile of that run's own
+matches. Postings too short to read (some APIs return only a teaser) count as
+unknown rather than as a bad match.
+
 The displayed score is a blend, weighted toward fit, and the score chip is
 tinted by reachability — **green** you clear comfortably, **amber** is a
 stretch, **red** is a reach. **Hover any score** to see what pulled that one
@@ -262,6 +283,35 @@ the identifier in that ATS's public URL:
 - Workday: `tenant:wdN:site`, read off the careers URL —
   `https://capitalone.wd12.myworkdayjobs.com/Capital_One` becomes
   `capitalone:wd12:Capital_One`
+
+## Reaching past the catalog
+
+A hand-curated list of ATS boards can only contain companies somebody thought to
+add, which is why one that starts with security vendors and AI labs keeps
+returning security vendors and AI labs. **Broad sources** search by role instead
+of by company, so the regional bank, the hospital system, the 40-person MSP and
+the federal agency all show up — and that is where most of the roles a
+mid-level candidate can actually clear are posted.
+
+```yaml
+broad_sources:
+  muse: true            # The Muse — no key needed
+  adzuna: false         # free key: https://developer.adzuna.com/
+  adzuna_app_id: "..."
+  adzuna_app_key: "..."
+  usajobs: false        # free key: https://developer.usajobs.gov/apirequest/
+  usajobs_email: "you@example.com"
+  usajobs_key: "..."
+
+broad_queries:          # defaults to `titles`; plainer phrasing works better
+  - SOC Analyst
+  - Information Security Analyst
+```
+
+Anything with no key configured is skipped silently, so the tool still runs
+without signing up for either. Adzuna returns truncated descriptions — its
+structured salary fields are used instead, and the missing text is scored as
+unknown rather than as a bad match.
 
 Workday is where the enterprise, finance, insurance and MSSP security roles
 live; the startup boards skew senior and carry almost no entry-level security

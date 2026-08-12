@@ -4,7 +4,8 @@ description: >-
   Run the user's USA tech job search. Use when the user says "run my job hunt",
   "do my job search", "find me tech jobs", "set up my job hunt", or similar.
   Pulls live postings from public ATS APIs (Greenhouse, Lever, Ashby,
-  SmartRecruiters, Recruitee), filters to USA-only tech roles in the user's
+  SmartRecruiters, Recruitee, Workday) plus broad job-search APIs (The Muse,
+  Adzuna, USAJOBS), filters to USA-only tech roles in the user's
   chosen sub-sectors/titles, scores relevance 0-100, groups them by company, and
   opens a browsable web-app dashboard. First run walks the user through setup.
   Tech sector only (cybersecurity, SWE, data/ML, devops, IT, product, QA). The
@@ -115,11 +116,21 @@ how many boards failed. Remind the user the dashboard is open and that he review
 and applies to everything himself.
 
 ## Notes
-- **Sources:** Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workday —
-  all free, public, no API key. Adding a company = add its slug under the right
-  source in `config/companies_catalog.yaml`. Workday slugs are `tenant:wdN:site`
-  and carry the enterprise/finance/MSSP roles the startup boards lack; their
-  descriptions are hydrated after the title gate.
+- **Board sources** (per company): Greenhouse, Lever, Ashby, SmartRecruiters,
+  Recruitee, Workday — all free, public, no API key. Adding a company = add its
+  slug under the right source in `config/companies_catalog.yaml`. Workday slugs
+  are `tenant:wdN:site` and carry the enterprise/finance/MSSP roles the startup
+  boards lack; their descriptions are hydrated after the title gate.
+- **Broad sources** (per role, `broad_sources:` in config): The Muse (no key),
+  Adzuna and USAJOBS (free keys). These exist because a hand-curated catalog can
+  only ever contain companies somebody thought to add, which skews it toward
+  famous tech brands. Broad sources search by title instead and surface regional
+  banks, hospital systems, MSPs and agencies — where most reachable roles are.
+  A key-based source with no key configured is skipped silently.
+  **If the user says the results are all big-name / too senior, this is the
+  lever** — turn on the key-based ones, then widen `broad_queries`.
+  Adzuna truncates descriptions, so years/sponsorship extraction won't fire on
+  it; its structured `salary_min/max` is used instead (see `stated_salary`).
 - **USA only, tech only** — both are enforced in `filter.py`. Non-US locations
   and non-tech titles are dropped.
 - A failing slug never crashes the run; it's logged and shown in the dashboard's
@@ -131,6 +142,17 @@ and applies to everything himself.
 - **The score is a blend** of relevance (score.py) and fit (fit.py, driven by
   `config/profile.yaml`). No profile file = relevance only. Re-run the hunt
   after editing the profile; rebuilding the dashboard alone will not rescore.
+- **Fit refuses to reward missing data.** Roughly half of all postings state no
+  years and no salary; an unreadable component is dropped from the denominator
+  and the result is shrunk toward 50, so a posting we know nothing about lands
+  mid-pack rather than near the top. An unstated years bar falls back to what
+  the title implies (`fit.LEVEL_YOE`). `fit_confidence` records how much was
+  readable and the dashboard dashes the score chip below 0.8.
+- **Skill overlap is weighted by rarity, calibrated per run** (`build_skill_idf`).
+  Raw hit counts let any engineering role max out the skills component on
+  `python`/`git`/`docker`; IDF over the run's own corpus makes the distinctive
+  tools carry the score. Descriptions shorter than `MIN_SKILL_TEXT` count as
+  unreadable, not as a bad match — otherwise truncating APIs get punished.
 - **Cross-run signals:** `seen_jobs.json` drives `open_days` (how long we've
   watched a req stay open) and `reposted` (same company+title under a new id).
   Either flags a possible ghost req. Same title at the same company across

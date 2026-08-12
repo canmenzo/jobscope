@@ -1,10 +1,31 @@
-"""Fetch job postings from public ATS JSON APIs.
+"""Fetch job postings from public JSON APIs.
 
-Sources (all free, public, no API key):
-  greenhouse, lever, ashby, smartrecruiters, recruitee
+Two kinds of source, because they answer different halves of the problem.
 
-Legal, official endpoints only. No scraping of LinkedIn/Indeed. Each company is
-fetched in its own try/except so one bad endpoint never kills the run.
+BOARD SOURCES are per-company: you name the employer, you get its whole board.
+  greenhouse, lever, ashby, smartrecruiters, recruitee, workable, rippling,
+  workday
+They give clean, complete, well-described postings — but only from companies
+somebody put in the catalog, which skews heavily toward well-known tech firms.
+
+BROAD SOURCES are per-query: you name the role, you get whoever is hiring for
+it. These exist to fix that skew — the mid-market bank, the hospital system,
+the 40-person MSP and the federal agency are never going to be in a hand-curated
+list of tech boards, and they are where most of the actually-reachable jobs are.
+  muse     — The Muse public API. No key, ~400k US postings, very broad
+             employer mix. Its own category tagging is unreliable, so we pull
+             wide and let filter.py do the real gating.
+  adzuna   — free developer key (developer.adzuna.com). A true aggregator with
+             full-text search; the closest legal equivalent to what you see on
+             the big job boards. NOTE: descriptions come back truncated, so
+             years/sponsorship extraction won't fire on these.
+  usajobs  — free key (developer.usajobs.gov). Federal postings, full text and
+             structured pay. A lot of genuinely mid-level cyber work.
+Both key-based sources are skipped silently when no key is configured, so the
+tool still runs for someone who hasn't signed up.
+
+Legal, official endpoints only. No scraping of LinkedIn/Indeed. Each company or
+query is fetched in its own try/except so one bad endpoint never kills the run.
 
 fetch_all() returns (jobs, statuses):
   jobs     - flat list of normalized job dicts
@@ -25,6 +46,23 @@ ASHBY = "https://api.ashbyhq.com/posting-api/job-board/{slug}"
 SMARTRECRUITERS = "https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100&offset={offset}"
 RECRUITEE = "https://{slug}.recruitee.com/api/offers/"
 # Workday endpoints are built per-tenant in fetch_workday (tenant:wdN:site).
+
+# Broad (query-based) sources — see the module docstring.
+MUSE = "https://www.themuse.com/api/public/jobs"
+ADZUNA = "https://api.adzuna.com/v1/api/jobs/us/search/{page}"
+USAJOBS = "https://data.usajobs.gov/api/search"
+
+# The Muse paginates 20 at a time and refuses page > 99. Its category tagging is
+# loose enough that "Software Engineering" returns supermarket shifts, so the
+# page budget is spent where the hit rate is: "Computer and IT" is small enough
+# to exhaust outright, the rest are sampled. (category, max_pages).
+MUSE_SLICES = [("Computer and IT", 79), ("Software Engineering", 40),
+               ("Data and Analytics", 20), ("Science and Engineering", 12)]
+MUSE_PAGE_CAP = 99
+ADZUNA_PAGES = 3        # 50 results each, per query
+ADZUNA_MAX_AGE = 45     # days
+USAJOBS_PAGE = 250      # server max is 500; 250 keeps responses manageable
+USAJOBS_PAGES = 2
 
 # Public board URL per source — used as the careers link when a slug fails.
 BOARD_URL = {
@@ -352,6 +390,226 @@ _FETCHERS = {
     "smartrecruiters": fetch_smartrecruiters, "recruitee": fetch_recruitee,
     "workday": fetch_workday,
 }
+
+
+# --------------------------------------------------------- broad sources
+# These return postings from employers nobody put in a catalog. Each one is a
+# plain function returning a list of the same normalized job dicts the board
+# fetchers produce, so everything downstream is unchanged.
+
+def _co_slug(name):
+    """Stable per-company key for an employer we discovered rather than chose."""
+    return re.sub(r"[^a-z0-9]+", "-", (name or "unknown").lower()).strip("-") or "unknown"
+
+
+def _muse_page(category, page):
+    d = requests.get(MUSE, params={"page": page, "category": category},
+                     headers=HEADERS, timeout=TIMEOUT)
+    d.raise_for_status()
+    data = d.json()
+    jobs = []
+    for j in data.get("results", []):
+        co = j.get("company") or {}
+        name = co.get("name") or "Unknown"
+        locs = [x.get("name", "") for x in (j.get("locations") or []) if x.get("name")]
+        jobs.append({
+            "id": f"muse:{co.get('short_name') or _co_slug(name)}:{j.get('id')}",
+            "source": "muse", "company": name, "slug": _co_slug(name),
+            "title": (j.get("name") or "").strip(),
+            "location": "; ".join(locs), "country": "",
+            "url": (j.get("refs") or {}).get("landing_page", ""),
+            "description": _strip_html(j.get("contents", "")), "comp": "",
+            "posted": _iso_date(j.get("publication_date")),
+        })
+    return jobs, data.get("page_count", 0)
+
+
+def fetch_muse(slices=None, log=None):
+    """Sweep The Muse's public feed across a few categories.
+
+    The first page of each category is fetched serially to learn its real page
+    count, then the remainder go out in parallel. Pages are independent, so a
+    single failure costs 20 postings rather than the category.
+    """
+    jobs, tasks = [], []
+    for category, budget in (slices or MUSE_SLICES):
+        try:
+            first, pages = _muse_page(category, 1)
+        except Exception as e:  # noqa: BLE001
+            if log:
+                log(f"  ! muse {category} -> {type(e).__name__}")
+            continue
+        jobs += first
+        last = min(budget, pages, MUSE_PAGE_CAP)
+        tasks += [(category, p) for p in range(2, last + 1)]
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = {ex.submit(_muse_page, c, p): (c, p) for c, p in tasks}
+        for fut in as_completed(futures):
+            try:
+                got, _ = fut.result()
+                jobs += got
+            except Exception:  # noqa: BLE001 — one lost page is not a failure
+                pass
+    if log:
+        log(f"  muse            {len(tasks) + len(slices or MUSE_SLICES):>4} pages"
+            f"        -> {len(jobs)} postings")
+    return jobs
+
+
+def _adzuna_query(what, app_id, app_key, page):
+    r = requests.get(ADZUNA.format(page=page), headers=HEADERS, timeout=TIMEOUT,
+                     params={"app_id": app_id, "app_key": app_key,
+                             "results_per_page": 50, "what_phrase": what,
+                             "max_days_old": ADZUNA_MAX_AGE, "sort_by": "date",
+                             "content-type": "application/json"})
+    r.raise_for_status()
+    out = []
+    for j in r.json().get("results", []):
+        name = (j.get("company") or {}).get("display_name") or "Unknown"
+        out.append({
+            "id": f"adzuna::{j.get('id')}",
+            "source": "adzuna", "company": name, "slug": _co_slug(name),
+            "title": (j.get("title") or "").strip(),
+            "location": (j.get("location") or {}).get("display_name", ""),
+            "country": "US", "url": j.get("redirect_url", ""),
+            # Adzuna returns a ~200-char teaser, never the full posting. fit.py
+            # treats text this short as unreadable rather than as evidence of a
+            # bad match — see MIN_SKILL_TEXT there.
+            "description": _strip_html(j.get("description", "")), "comp": "",
+            "posted": _iso_date(j.get("created")),
+            "salary_min": j.get("salary_min"), "salary_max": j.get("salary_max"),
+        })
+    return out
+
+
+def fetch_adzuna(queries, app_id, app_key, pages=ADZUNA_PAGES, log=None):
+    if not (app_id and app_key):
+        return []
+    jobs, seen = [], set()
+    tasks = [(q, p) for q in queries for p in range(1, pages + 1)]
+    with ThreadPoolExecutor(max_workers=5) as ex:  # free tier is rate-limited
+        futures = [ex.submit(_adzuna_query, q, app_id, app_key, p) for q, p in tasks]
+        for fut in as_completed(futures):
+            try:
+                for j in fut.result():
+                    if j["id"] not in seen:      # the same posting matches many queries
+                        seen.add(j["id"])
+                        jobs.append(j)
+            except Exception:  # noqa: BLE001
+                pass
+    if log:
+        log(f"  adzuna          {len(tasks):>4} queries      -> {len(jobs)} postings")
+    return jobs
+
+
+def _usajobs_query(keyword, email, key, page):
+    r = requests.get(USAJOBS, timeout=TIMEOUT, params={
+        "Keyword": keyword, "ResultsPerPage": USAJOBS_PAGE, "Page": page,
+        "LocationName": "United States"},
+        headers={"Host": "data.usajobs.gov", "User-Agent": email,
+                 "Authorization-Key": key})
+    r.raise_for_status()
+    items = ((r.json().get("SearchResult") or {}).get("SearchResultItems") or [])
+    out = []
+    for it in items:
+        d = it.get("MatchedObjectDescriptor") or {}
+        ua = ((d.get("UserArea") or {}).get("Details") or {})
+        desc = "\n\n".join(x for x in [ua.get("JobSummary"),
+                                       d.get("QualificationSummary"),
+                                       ua.get("Requirements")] if x)
+        name = d.get("OrganizationName") or d.get("DepartmentName") or "US Government"
+        pay = (d.get("PositionRemuneration") or [{}])[0]
+        out.append({
+            "id": f"usajobs::{it.get('MatchedObjectId')}",
+            "source": "usajobs", "company": name, "slug": _co_slug(name),
+            "title": (d.get("PositionTitle") or "").strip(),
+            "location": d.get("PositionLocationDisplay", ""), "country": "US",
+            "url": d.get("PositionURI", ""), "description": _strip_html(desc),
+            "comp": "", "posted": _iso_date(d.get("PublicationStartDate")),
+            "salary_min": _num(pay.get("MinimumRange")),
+            "salary_max": _num(pay.get("MaximumRange")),
+        })
+    return out
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_usajobs(queries, email, key, pages=USAJOBS_PAGES, log=None):
+    if not (email and key):
+        return []
+    jobs, seen = [], set()
+    tasks = [(q, p) for q in queries for p in range(1, pages + 1)]
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futures = [ex.submit(_usajobs_query, q, email, key, p) for q, p in tasks]
+        for fut in as_completed(futures):
+            try:
+                for j in fut.result():
+                    if j["id"] not in seen:
+                        seen.add(j["id"])
+                        jobs.append(j)
+            except Exception:  # noqa: BLE001
+                pass
+    if log:
+        log(f"  usajobs         {len(tasks):>4} queries      -> {len(jobs)} postings")
+    return jobs
+
+
+def statuses_for(jobs):
+    """Synthesize per-company statuses for employers we discovered by query.
+
+    The dashboard's company panel and the run file are both keyed on
+    (source, slug); board sources get that from the catalog, broad sources have
+    to derive it from whoever turned up.
+    """
+    by_key = {}
+    for j in jobs:
+        key = (j["source"], j["slug"])
+        st = by_key.setdefault(key, {
+            "name": j.get("company") or j["slug"], "source": j["source"],
+            "slug": j["slug"], "ok": True, "count": 0, "error": "",
+            "careers_url": "",
+        })
+        st["count"] += 1
+    return sorted(by_key.values(), key=lambda s: (s["source"], s["slug"]))
+
+
+def fetch_broad(config, log):
+    """Run whichever broad sources are switched on in config. Never raises."""
+    enabled = (config.get("broad_sources") or {})
+    queries = [str(t) for t in (config.get("broad_queries")
+                                or config.get("titles") or []) if t]
+    jobs = []
+
+    if enabled.get("muse"):
+        slices = MUSE_SLICES
+        if isinstance(enabled.get("muse"), dict):
+            slices = [(k, int(v)) for k, v in enabled["muse"].items()]
+        try:
+            jobs += fetch_muse(slices, log)
+        except Exception as e:  # noqa: BLE001
+            log(f"  ! muse -> {type(e).__name__}: {e}")
+
+    if enabled.get("adzuna") and queries:
+        try:
+            jobs += fetch_adzuna(queries, enabled.get("adzuna_app_id"),
+                                 enabled.get("adzuna_app_key"), log=log)
+        except Exception as e:  # noqa: BLE001
+            log(f"  ! adzuna -> {type(e).__name__}: {e}")
+
+    if enabled.get("usajobs") and queries:
+        try:
+            jobs += fetch_usajobs(queries, enabled.get("usajobs_email"),
+                                  enabled.get("usajobs_key"), log=log)
+        except Exception as e:  # noqa: BLE001
+            log(f"  ! usajobs -> {type(e).__name__}: {e}")
+
+    return jobs, statuses_for(jobs)
 
 
 def _fetch_one(c):
