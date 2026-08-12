@@ -5,9 +5,9 @@ they are plain strings rather than f-strings — braces stay unescaped and the J
 below reads like JS. build_dashboard.py substitutes __TOKEN__ placeholders.
 
 Layout: a dense sortable LIST on the left and a drag-and-drop KANBAN on the
-right (Applied / Screening / Interview / Offer, plus a closed strip for
-Accepted / Rejected / No response). A second top-level tab swaps the board for
-the FLOW view — a full-width Sankey of how roles moved between stages.
+right (Will apply / Applied / Screening / Interview / Offer, plus a closed strip
+for Accepted / Rejected / No response). A second top-level tab swaps the board
+for the FLOW view — a full-width Sankey of how roles moved between stages.
 
 Two colour systems, deliberately separated:
   * CHROME is the "neon cyber" skin — magenta edges and glows, near-black
@@ -17,8 +17,10 @@ Two colour systems, deliberately separated:
     readable despite the dark skin.
   * DATA keeps the palette validated with the data-viz six checks: Applied ->
     Offer is an ORDINAL one-hue ramp (monotone lightness, adjacent dL >= 0.06);
-    Accepted / Rejected are reserved STATUS colours, always drawn beside their
-    name and count so hue never carries meaning alone.
+    Will apply sits outside that ramp on a separate hue because it is a
+    shortlist, not a rung of the funnel; Accepted / Rejected are reserved STATUS
+    colours, always drawn beside their name and count so hue never carries
+    meaning alone.
 """
 
 CSS = """
@@ -30,6 +32,7 @@ CSS = """
   /* text */
   --ink:#ece9f7; --ink-2:#c9bde8; --ink-3:#9b8dc4; --ink-4:#77699e;
   /* data */
+  --st-willapply:#c9922b;
   --st-applied:#1e4fa8; --st-screening:#2f6fdd; --st-interview:#4f8ef0;
   --st-offer:#7fb0f7; --st-accepted:#0ca30c; --st-rejected:#d03b3b;
   --st-ghosted:#6b7280; --st-none:#606b82;
@@ -109,10 +112,10 @@ button{font-family:inherit}
 /* ------------------------------------------------------------- left list */
 /* The list claims the room that collapsed stages give up — that is the point
    of collapsing them. Width steps with how many stages are empty. */
-.listpane.w1{width:59%}
-.listpane.w2{width:65%}
-.listpane.w3{width:71%}
-.listpane{width:53%;min-width:420px;display:flex;flex-direction:column;min-height:0;
+.listpane.w1{width:55%}
+.listpane.w2{width:61%}
+.listpane.w3{width:67%}
+.listpane{width:50%;min-width:420px;display:flex;flex-direction:column;min-height:0;
           background:var(--pane);border-right:1px solid var(--edge);transition:width .3s}
 .listpane.dropping{box-shadow:inset 0 0 0 1px var(--neon),inset 0 0 40px #c026d31f}
 .filters{display:flex;align-items:center;gap:6px;padding:9px 13px;flex-shrink:0;
@@ -811,9 +814,10 @@ function renderBoard() {
       });
     }
     bump(document.getElementById('cn-' + k), ids.length);
-    // Applied always stays open — it is the drop target you reach for first.
+    // Will apply and Applied always stay open — they are the two drop targets
+    // you reach for first, and one of them is where every card enters.
     document.getElementById('dz-' + k).classList.toggle(
-      'rail', ids.length === 0 && k !== BOARD_STAGES[0]);
+      'rail', ids.length === 0 && BOARD_STAGES.indexOf(k) > 1);
   });
   const railed = BOARD_STAGES.filter(
     k => document.getElementById('dz-' + k).classList.contains('rail')).length;
@@ -914,21 +918,29 @@ rowsEl.addEventListener('click', e => {
   const btn = e.target.closest('.iact'); if (!btn) return;
   const id = btn.closest('.row').dataset.id;
   if (btn.dataset.act === 'open') window.open(JOBS[id].url, '_blank', 'noopener');
+  if (btn.dataset.act === 'will') move(id, 'willapply');
   if (btn.dataset.act === 'apply') move(id, 'applied');
 });
 
 /* ----------------------------------------------------------------- flow */
 
 function buildFlows() {
-  const track = BOARD_STAGES.concat(['accepted']);
+  // Will apply is a shortlist, not a rung: it is dropped from the track and
+  // from every path, so a role you have only earmarked does not show up as an
+  // application and cannot inflate the conversion rates below.
+  const track = BOARD_STAGES.filter(k => k !== 'willapply').concat(['accepted']);
   const reached = {}, flows = new Map();
   track.forEach(k => reached[k] = 0);
   let applied = 0;
   Object.keys(APPS).forEach(id => {
     if (!jobOf(id)) return;
     const e = APPS[id];
-    const hist = (e.history && e.history.length ? e.history.map(h => h.stage) : [e.status])
+    const raw = (e.history && e.history.length ? e.history.map(h => h.stage) : [e.status])
       .filter(s => s && s !== 'none');
+    // Shortlisted and then closed out — the posting died before you sent
+    // anything. It never entered the funnel, so it is not a rejection either.
+    if (raw[0] === 'willapply' && !raw.includes('applied')) return;
+    const hist = raw.filter(s => s !== 'willapply');
     if (!hist.length) return;
     const path = hist.filter((s, i) => i === 0 || s !== hist[i - 1]);
     if (!path.includes('applied')) path.unshift('applied');

@@ -51,6 +51,7 @@ LEVEL_ORDER = ["intern", "junior", "associate", "entry", "senior", "lead",
 # (key, label, css var). Order is the funnel order.
 STAGES = [
     ("none", "Not applied", "--st-none"),
+    ("willapply", "Will apply", "--st-willapply"),
     ("applied", "Applied", "--st-applied"),
     ("screening", "Screening", "--st-screening"),
     ("interview", "Interview", "--st-interview"),
@@ -59,7 +60,10 @@ STAGES = [
     ("rejected", "Rejected", "--st-rejected"),
     ("ghosted", "No response", "--st-ghosted"),
 ]
-BOARD_STAGES = ["applied", "screening", "interview", "offer"]   # kanban columns
+# kanban columns. "Will apply" is a shortlist that sits BEFORE the funnel: it is
+# a drop target and a column, but nothing in it counts as an application, so the
+# Flow view starts at Applied.
+BOARD_STAGES = ["willapply", "applied", "screening", "interview", "offer"]
 CLOSED_STAGES = ["accepted", "rejected", "ghosted"]             # closed strip
 
 CATEGORIES = [
@@ -294,6 +298,7 @@ def row(j):
     <div class="rs">{esc(j.get('salary') or '—')}</div>
     <div class="racts">
       <button class="iact" data-act="open" title="Open posting">&#8599;</button>
+      <button class="iact" data-act="will" title="Move to Will apply">&#9873;</button>
       <button class="iact" data-act="apply" title="Move to Applied">&#43;</button>
     </div>
   </div>"""
@@ -429,7 +434,7 @@ PAGE = """<!doctype html>
             data-tip="Distinct companies across those roles. <b>Click to see every company
             searched</b> — how many roles each one matched, and a link to its careers page.">
         <b>__COMPANIES__</b> companies</span>
-      <span data-tip="Roles you have moved onto the board (Applied and beyond)"><b id="kTracked">0</b> tracked</span>
+      <span data-tip="Roles you have moved onto the board (Will apply and beyond)"><b id="kTracked">0</b> tracked</span>
       <span class="warn" data-tip="<b>Possible ghost jobs.</b> The req has stayed open unusually long, or the same title keeps getting reposted under a new id. Often an evergreen pipeline rather than a live opening.">
         <b>__GHOSTS__</b> ghosts</span>
       <span data-tip="<b>Duplicate rows folded together.</b> The same title at the same company posted once per city becomes one row carrying every location">
@@ -479,7 +484,7 @@ __CLOSED__
           <div class="flowhead">
             <div>
               <h2>Stage flow</h2>
-              <div class="sub">every role you have tracked &middot; hover a ribbon for exact counts</div>
+              <div class="sub">every role you have applied to &middot; hover a ribbon for exact counts</div>
             </div>
             <div class="acts">
               <button class="tbtn" id="csvPipe" data-tip="Download everything you are tracking — stage, dates, the path it took, your notes. UTF-8 CSV with a BOM, so Excel opens it correctly on a double-click.">Pipeline CSV</button>
@@ -489,7 +494,7 @@ __CLOSED__
           </div>
           <svg id="sankey" role="img" aria-label="Sankey diagram of application stages"></svg>
           <div class="flow-empty hidden" id="flowEmpty">
-            Nothing tracked yet.<br>Drag a role from the list onto <b>Applied</b> on the Board tab,
+            Nothing applied to yet.<br>Drag a role from the list onto <b>Applied</b> on the Board tab,
             then move it along as things progress —<br>this fills in with the flow between stages,
             including where things drop out.
           </div>
