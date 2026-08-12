@@ -25,9 +25,9 @@ import yaml
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 
-from fetch import board_url, fetch_all, hydrate_descriptions  # noqa: E402
+from fetch import board_url, fetch_all, fetch_broad, hydrate_descriptions  # noqa: E402
 from filter import build_scope, filter_jobs  # noqa: E402
-from fit import blend, load_profile, score_fit  # noqa: E402
+from fit import blend, build_skill_idf, load_profile, score_fit  # noqa: E402
 from score import score_all  # noqa: E402
 
 CONFIG = SKILL_ROOT / "config"
@@ -62,6 +62,23 @@ def extract_salary(desc):
         if 40 <= lo <= hi <= 1500:
             return f"${lo:.0f}K–${hi:.0f}K"
     return ""
+
+
+def stated_salary(job):
+    """Structured pay, for the sources that publish it as numbers.
+
+    Adzuna and USAJOBS both hand back salary_min/max fields, which beats
+    regexing prose — and for Adzuna it is the only option, since its
+    descriptions are truncated. Values outside a plausible annual band are
+    dropped rather than trusted: USAJOBS in particular quotes some roles hourly.
+    """
+    lo, hi = job.get("salary_min"), job.get("salary_max")
+    if not lo:
+        return ""
+    hi = hi or lo
+    if not (30_000 <= lo <= hi <= 1_500_000):
+        return ""
+    return f"${lo / 1000:.0f}K–${hi / 1000:.0f}K"
 
 
 # "5+ years of experience", "5-7 years ... experience", "minimum 3 years experience".
@@ -267,6 +284,13 @@ def main():
 
     log("\n[1/4] Fetching postings...")
     jobs, statuses = fetch_all(companies, log, config.get("workday_search") or None)
+    log(f"  {len(jobs)} from {len(companies)} company boards")
+    broad_jobs, broad_statuses = fetch_broad(config, log)
+    if broad_jobs:
+        jobs += broad_jobs
+        statuses += broad_statuses
+        log(f"  {len(broad_jobs)} from broad sources "
+            f"({len(broad_statuses)} employers not in the catalog)")
     log(f"  total postings pulled: {len(jobs)}")
 
     log("\n[2/4] Filtering (USA + selected sectors)...")
@@ -296,10 +320,18 @@ def main():
     scored = score_all(kept, scope)
     scored = [j for j in scored if j["score"] >= min_score]
     for j in scored:
-        j["salary"] = extract_salary(j.get("description", ""))
+        j["salary"] = stated_salary(j) or extract_salary(j.get("description", ""))
         j["salary_low"] = _sal_low_usd(j["salary"])
         j["sponsorship"] = extract_sponsorship(j.get("description", ""))
     if profile:
+        # Calibrate the skills component against everything that survived the
+        # filter, not against the handful that scored well — the question is
+        # "how distinctive is this match among roles of the kind you asked
+        # for", and that needs the whole relevant pool as the denominator.
+        build_skill_idf(profile, [j.get("description", "") for j in kept])
+        common = sorted(profile["idf"], key=profile["idf"].get)[:4]
+        log(f"  skill calibration: {len(kept)} postings, "
+            f"most common of yours: {', '.join(common)}")
         for j in scored:
             j["relevance"] = j["score"]
             j["fit"], j["fit_reasons"] = score_fit(j, profile)
@@ -339,6 +371,7 @@ def main():
                 "sponsorship": j.get("sponsorship", ""),
                 "relevance": j.get("relevance", j["score"]),
                 "fit": j.get("fit"), "fit_reasons": j.get("fit_reasons", []),
+                "fit_confidence": j.get("fit_confidence"),
                 "first_seen": j.get("first_seen", ""),
                 "open_days": j.get("open_days", 0),
                 "reposted": j.get("reposted", 0),

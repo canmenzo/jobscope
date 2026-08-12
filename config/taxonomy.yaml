@@ -23,6 +23,10 @@ sub_sectors:
       - Offensive Security Engineer / Penetration Tester
       - Malware Analyst / Reverse Engineer
       - AI Security Engineer
+      - Security Automation Engineer
+      - Agentic SOC Engineer
+      - SOAR Engineer
+      - AI Red Team Engineer
       - Security Operations Engineer
       - GRC / Security Compliance Analyst
     keywords:
@@ -52,6 +56,19 @@ sub_sectors:
       - dfir
       - ai security
       - grc
+      # security x AI — the roles that sit between the SOC and the model
+      - security automation
+      - soar
+      - agentic soc
+      - ai soc
+      - autonomous soc
+      - llm security
+      - ai red team
+      - model security
+      - prompt injection
+      - mlsecops
+      - ai governance
+      - offensive ai
 
   software-engineering:
     label: Software Engineering
@@ -98,6 +115,54 @@ sub_sectors:
       - data analyst
       - mlops
       - deep learning
+
+  ai-engineering:
+    label: AI / Agentic Engineering
+    # Distinct from data-ml-ai, which is the classic data/ML ladder (pipelines,
+    # models, analytics). This one is the LLM-product ladder: people who build
+    # ON models — agents, evals, RAG, inference plumbing, and the customer-facing
+    # forward-deployed work. AI labs post most of these under generic titles
+    # ("Member of Technical Staff"), so that is a first-class title here.
+    titles:
+      - AI Engineer
+      - Applied AI Engineer
+      - Forward Deployed Engineer
+      - Member of Technical Staff
+      - LLM Engineer
+      - Agent Engineer
+      - Research Engineer
+      - AI Infrastructure Engineer
+      - AI Platform Engineer
+      - AI Automation Engineer
+      - Prompt Engineer
+      - AI Product Engineer
+      - Evaluation Engineer
+    keywords:
+      - ai engineer
+      - applied ai
+      - agentic
+      - ai agent
+      - llm
+      - large language model
+      - generative ai
+      - genai
+      - foundation model
+      - frontier model
+      - forward deployed
+      - member of technical staff
+      - research engineer
+      - prompt engineer
+      - retrieval augmented
+      - retrieval-augmented
+      - fine-tun
+      - finetun
+      - inference
+      - model eval
+      - ai platform
+      - ai infrastructure
+      - ai automation
+      - ai solutions
+      - copilot
 
   devops-cloud:
     label: DevOps / SRE / Cloud / Platform
@@ -192,3 +257,14 @@ nontech_drop:
   - solutions engineer
   - sales engineer
   - business development
+
+# Exceptions to nontech_drop. Checked first: a title containing one of these is
+# kept even if it also contains a drop term. Needed because the AI labs ship
+# genuinely technical roles under names the drop-list treats as sales — a
+# "Forward Deployed Solutions Engineer" at Palantir/OpenAI writes code.
+nontech_keep:
+  - forward deployed
+  - applied ai
+  - ai solutions engineer
+  - ml solutions engineer
+  - security solutions engineer
