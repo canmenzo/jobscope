@@ -1,6 +1,7 @@
 # User-specific config and output — not shared.
 config/config.yaml
 runs/
+dashboard.html
 seen_jobs.json
 applications.json
 

@@ -598,10 +598,16 @@ def build(date=None, do_open=True):
 
     out = run_dir / "index.html"
     out.write_text(page, encoding="utf-8")
+    # Firefox scopes localStorage to the file's full PATH, so a page at
+    # runs/<DATE>/index.html gets a brand new, empty store every single run and
+    # the whole pipeline looks wiped. Always open the same stable path instead;
+    # the dated copy stays as the archive.
+    live = SKILL_ROOT / "dashboard.html"
+    live.write_text(page, encoding="utf-8")
     print(f"wrote {out} ({len(jobs)} roles, {merged} merged, {ghosts} possible ghosts, "
           f"{non_us} non-US hidden)")
     if do_open:
-        webbrowser.open(out.resolve().as_uri())
+        webbrowser.open(live.resolve().as_uri())
     return 0
 
 
