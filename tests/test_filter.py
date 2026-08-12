@@ -41,6 +41,31 @@ def test_classify_location_type(loc, expected):
     assert loc_type == expected
 
 
+@pytest.mark.parametrize("loc", [
+    "New York City (Remote)",
+    "Remote - California",
+    "Remote - CA",
+    "San Francisco, CA (Remote)",
+    "US, CO, Remote",
+    "Remote-Friendly (Travel-Required) | San Francisco, CA | New York City, NY",
+])
+def test_state_tied_remote_is_its_own_type(loc):
+    _, loc_type, states = classify_location(loc, "US")
+    assert loc_type == "remote_state"
+    assert states
+
+
+@pytest.mark.parametrize("loc", [
+    "Remote (USA)",
+    "United States - Remote",
+    "New York, New York; Miami, Florida; Remote (USA)",
+    "Remote - Anywhere",
+])
+def test_nationwide_remote_stays_remote(loc):
+    _, loc_type, _ = classify_location(loc, "US")
+    assert loc_type == "remote"
+
+
 def test_explicit_country_field_wins_over_text():
     is_us, _, _ = classify_location("Remote", "DE")
     assert is_us is False

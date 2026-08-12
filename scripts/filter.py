@@ -1,5 +1,7 @@
 """Coarse gate before scoring. Keep a role only if ALL are true:
-  - title is not an obvious non-tech function (sales/marketing/HR/...)
+  - title is not an obvious non-tech function (sales/marketing/HR/...),
+    unless it hits taxonomy.nontech_keep (e.g. "Forward Deployed Solutions
+    Engineer", which is an engineering role wearing a sales-sounding name)
   - location is in the USA (or US-remote / unspecified)
   - does not require an active security clearance
   - matches at least one keyword from the user's selected sub-sectors/titles
@@ -44,6 +46,12 @@ NON_US_MARKERS = [
 US_MARKERS = [
     "united states", "u.s.", "usa", "us-remote", "remote - us", "remote, us",
     "americas", "north america", "remote us", "us only", "anywhere in the us",
+]
+# Signals that a remote role is open country-wide rather than tied to one metro.
+# "New York City (Remote)" is remote *from New York*; "Remote (USA)" is not.
+NATIONWIDE_MARKERS = US_MARKERS + [
+    "anywhere", "nationwide", "nation wide", "any state", "all states",
+    "any location", "us-based", "us based",
 ]
 
 # 50 states + DC, for positively confirming US locations and for the state facet.
@@ -99,8 +107,12 @@ def classify_location(loc, country):
 
     Returns (is_us, loc_type, states):
       is_us    True | False | None   (None = no US/non-US signal, e.g. bare "Remote")
-      loc_type "remote" | "hybrid" | "onsite" | "unspecified"
+      loc_type "remote" | "remote_state" | "hybrid" | "onsite" | "unspecified"
       states   list of 2-letter US state codes found (may be empty)
+
+    "remote" means remote anywhere in the country; "remote_state" is remote but
+    anchored to named states/metros ("New York City (Remote)", "Remote - CA"),
+    which is not a role someone in another state can take.
     """
     l = (loc or "").lower().strip()
     c = (country or "").upper().strip()
@@ -121,6 +133,9 @@ def classify_location(loc, country):
     for name, abbr in _NAME_TO_ABBR.items():
         if name in l and abbr not in states:
             states.append(abbr)
+
+    if loc_type == "remote" and states and not _has(l, NATIONWIDE_MARKERS):
+        loc_type = "remote_state"
 
     # An explicit country field is the strongest signal, but only when we can
     # actually read it. Workday reports "United States of America", which an
@@ -147,7 +162,7 @@ def _us_ok(loc, country):
     is_us, loc_type, _ = classify_location(loc, country)
     if is_us is False:
         where = loc or country or "?"
-        return (False, f"remote outside US ({where})") if loc_type == "remote" \
+        return (False, f"remote outside US ({where})") if loc_type.startswith("remote") \
             else (False, f"non-US ({where})")
     return True, ""
 
@@ -186,6 +201,7 @@ def build_scope(config, taxonomy):
         # the gate on a keyword they don't actually contain.
         "match_re": _matcher(sorted(keywords | titles)),
         "nontech_drop": [t.lower() for t in taxonomy.get("nontech_drop", [])],
+        "nontech_keep": [t.lower() for t in taxonomy.get("nontech_keep", [])],
         "downrank_levels": {str(l).lower() for l in config.get("downrank_levels", []) or []},
         "exclude_levels": {str(l).lower() for l in config.get("exclude_levels", []) or []},
         "freshness": config.get("freshness", True),
@@ -197,12 +213,13 @@ def filter_jobs(jobs, scope):
     kept, dropped = [], []
     match_re = scope["match_re"]
     nontech = scope["nontech_drop"]
+    keep = scope.get("nontech_keep") or []
     for j in jobs:
         title = (j.get("title") or "").lower()
         desc = (j.get("description") or "").lower()
         blob = title + "\n" + desc
 
-        if _has(title, nontech):
+        if _has(title, nontech) and not _has(title, keep):
             dropped.append((j, "non-tech function (title)"))
             continue
 

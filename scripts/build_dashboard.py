@@ -81,8 +81,8 @@ CATEGORIES = [
     ("Product / Design", ["product manager", "program manager", "designer", "ux", "ui"]),
     ("QA / Test", ["qa", "sdet", "test engineer", "quality", "automation engineer"]),
 ]
-TYPE_LABEL = {"remote": "Remote", "hybrid": "Hybrid", "onsite": "On-site",
-              "unspecified": "Unspecified"}
+TYPE_LABEL = {"remote": "Remote (anywhere US)", "remote_state": "Remote (state-tied)",
+              "hybrid": "Hybrid", "onsite": "On-site", "unspecified": "Unspecified"}
 AGE_LABEL = {"7d": "Last 7 days", "30d": "8–30 days", "90d": "31–90 days",
              "old": "90+ days", "na": "Unknown"}
 STALE_BUCKETS = ("90d", "old")
@@ -146,6 +146,7 @@ def enrich(j, source, run_date):
     is_us, loc_type, states = classify_location(j.get("location"), j.get("country"))
     j["_us"] = is_us
     j["_type"] = loc_type
+    j["_types"] = [loc_type]
     j["_states"] = states
     j["_cat"] = categorize(j.get("title"))
     j["_src"] = source
@@ -164,7 +165,11 @@ def enrich(j, source, run_date):
                        "3-5" if yoe <= 5 else "6-8" if yoe <= 8 else "9+")
     j["_ghost"] = bool(j.get("reposted")) or (j.get("open_days") or 0) >= GHOST_OPEN_DAYS
     loc = (j.get("location") or "").strip()
-    if states:
+    if loc_type == "remote_state":
+        # Say it out loud: a bare "CA" on a remote role reads as an on-site
+        # Californian job and makes the Type filter look broken.
+        j["_region"] = "Remote · " + ", ".join(states)
+    elif states:
         j["_region"] = ", ".join(states)
     elif loc_type in ("remote", "unspecified"):
         j["_region"] = "Remote / US"
@@ -193,16 +198,21 @@ def merge_duplicates(jobs):
         primary = g[0]
         if len(g) > 1:
             merged += len(g) - 1
-            locs, states = [], []
+            locs, states, types = [], [], []
             for j in g:
                 if j["_region"] and j["_region"] not in locs:
                     locs.append(j["_region"])
                 for s in j["_states"]:
                     if s not in states:
                         states.append(s)
+                if j["_type"] not in types:
+                    types.append(j["_type"])
             primary["_dupes"] = len(g)
             primary["_locs"] = locs
             primary["_states"] = states
+            # A role opened in both NYC and Remote is both: filtering on Remote
+            # must not lose it just because the on-site copy scored higher.
+            primary["_types"] = types
             primary["_ghost"] = primary["_ghost"] or any(j["_ghost"] for j in g)
         out.append(primary)
     return out, merged
@@ -252,7 +262,7 @@ def row(j):
     return f"""  <div class="row" draggable="true" data-id="{esc(j['id'])}"
        data-search="{esc((j['title'] + ' ' + j['comp'] + ' ' + j.get('location', '')).lower())}"
        data-new="{int(bool(j.get('new')))}" data-ghost="{int(j['_ghost'])}"
-       data-type="{j['_type']}" data-level="{esc(j.get('level') or 'none')}"
+       data-type="{' '.join(j['_types'])}" data-level="{esc(j.get('level') or 'none')}"
        data-cat="{slug(j['_cat'])}" data-src="{j['_src']}" data-state="{' '.join(j['_states'])}"
        data-age="{j['_agebucket']}" data-sal="{int(bool(j.get('salary')))}"
        data-yoe="{j['_yoebucket']}" data-spon="{j.get('sponsorship') or ''}"
@@ -263,7 +273,7 @@ def row(j):
     <div class="sc{band}"{score_tip}>{j['score']}</div>
     <div class="rt"><a href="{esc(j['url'])}" target="_blank" rel="noopener">{esc(j['title'])}</a>{badges}</div>
     <div class="rc">{esc(j['comp'])}</div>
-    <div class="rl">{esc(region_text(j))}</div>
+    <div class="rl" title="{esc(" · ".join(j.get("_locs") or [j["_region"]]))}">{esc(region_text(j))}</div>
     <div class="ra{stale}">{age_text(j)}</div>
     <div class="rs">{esc(j.get('salary') or '—')}</div>
     <div class="racts">
@@ -313,7 +323,7 @@ def dropdown(btn_label, fields, tip, align=""):
 
 FACET_TIPS = {
     "status": "Where each role sits in your pipeline. Tracked roles leave the list once you move them onto the board — pick a stage here to bring them back.",
-    "type": "Remote, hybrid or on-site",
+    "type": "Remote (anywhere US) vs remote tied to a state/metro, hybrid or on-site. A role posted in several locations answers to each of them.",
     "cat": "Role family, derived from the job title",
 }
 
