@@ -623,7 +623,9 @@ function toast(msg, undo) {
 /* ----------------------------------------------------------------- filter */
 
 function vals(row, f) {
-  if (f === 'state') return row.dataset.state.split(' ').filter(Boolean);
+  // state and type are multi-valued: a role merged across locations can be
+  // remote AND on-site, and must answer to either filter.
+  if (f === 'state' || f === 'type') return row.dataset[f].split(' ').filter(Boolean);
   if (f === 'status') return [stage(row.dataset.id)];
   return [row.dataset[f]];
 }
