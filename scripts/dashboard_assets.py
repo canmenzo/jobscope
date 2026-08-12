@@ -205,9 +205,15 @@ button{font-family:inherit}
 .tag.spon{background:#04220f;color:#4ade80}
 .stagedot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-left:6px;
           vertical-align:1px;box-shadow:0 0 7px currentColor}
-.racts{position:absolute;right:9px;top:50%;transform:translateY(-50%);display:none;gap:4px;
+/* Revealed by opacity, not display:none — display:none takes the buttons out
+   of the tab order, and dragging is mouse-only, so there was no keyboard way
+   to open or track a role at all. :focus-within shows them when tabbed to. */
+.racts{position:absolute;right:9px;top:50%;transform:translateY(-50%);display:flex;gap:4px;
+       opacity:0;pointer-events:none;transition:opacity .14s;
        background:linear-gradient(90deg,transparent,#12091f 22%);padding-left:26px}
-.row:hover .racts{display:flex}
+.row:hover .racts,.racts:focus-within{opacity:1;pointer-events:auto}
+.iact:focus-visible,.fbtn:focus-visible,.tab:focus-visible,.ovx:focus-visible{
+  outline:2px solid var(--neon);outline-offset:1px}
 .iact{width:25px;height:25px;display:grid;place-items:center;font-size:12px;cursor:pointer;
       background:var(--card);border:1px solid var(--edge-2);border-radius:6px;color:var(--ink-2);
       transition:.16s}
@@ -253,6 +259,10 @@ button{font-family:inherit}
            transform:translateX(-130%);transition:transform .65s}
 .kc:hover::after{transform:translateX(130%)}
 .kc.dragging{opacity:.35}
+.kc.gone{border-style:dashed;opacity:.75}
+.kc.gone .kt{color:var(--ink-2)}
+.gtag{font-size:8px;letter-spacing:.6px;font-weight:700;padding:1px 5px;border-radius:6px;
+      background:var(--field);border:1px solid var(--edge-2);color:var(--ink-3)}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .kc .kt{display:block;font-size:11.5px;font-weight:600;line-height:1.32;color:var(--ink);
         margin-bottom:2px;padding-right:18px;text-decoration:none;transition:color .15s}
@@ -461,9 +471,13 @@ button{font-family:inherit}
   *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
                        transition-duration:.001ms !important;scroll-behavior:auto !important}
 }
+/* .cols is flex, so the grid-template-columns this used to set did nothing and
+   four columns just kept squeezing. Wrapping to 2x2 is what was meant. */
 @media(max-width:1180px){
   .listpane{width:46%;min-width:360px}
-  .cols{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cols{flex-wrap:wrap}
+  .col{flex:1 1 calc(50% - 5px)}
+  .col.rail{flex:0 0 34px}
 }
 """
 
@@ -499,6 +513,23 @@ const meta = k => STAGES.find(s => s[0] === k) || ['none', 'Not applied', '--st-
 const label = k => meta(k)[1];
 const cvar = k => meta(k)[2];
 const saveApps = () => localStorage.setItem(LSKEY, JSON.stringify(APPS));
+
+// A role you are tracking can leave the run entirely: the posting closed, it
+// was relisted under a new id, or this run's filters no longer reach it. The
+// board used to test JOBS[id] and simply skip those, so a role you had applied
+// to vanished from the kanban, the funnel AND the pipeline export — the record
+// of having applied disappeared with the posting. Every entry in APPS carries
+// the title, company and URL saved when it was first moved, so fall back to
+// that and draw the card marked GONE instead.
+function jobOf(id) {
+  if (JOBS[id]) return JOBS[id];
+  const e = APPS[id];
+  if (!e || !e.title) return null;
+  return { title: e.title, comp: e.company || '', url: e.url || '',
+           region: '', age: '', salary: '', score: '', gone: true };
+}
+const trackedIds = st => Object.keys(APPS).filter(
+  id => jobOf(id) && (st ? stage(id) === st : stage(id) !== 'none'));
 
 /* ------------------------------------------------------------------ state */
 
@@ -549,8 +580,11 @@ function setStage(id, next, record) {
     }
     if (next === 'applied' && !e.applied_date) e.applied_date = today;
   }
-  const j = JOBS[id] || {};
-  e.title = j.title; e.company = j.comp; e.url = j.url;
+  // Only refresh the snapshot from a role that is actually in this run —
+  // otherwise moving a role that has since closed overwrites the only copy of
+  // its title and URL with undefined, and the card can never be drawn again.
+  const j = JOBS[id];
+  if (j) { e.title = j.title; e.company = j.comp; e.url = j.url; }
   if (next === 'none' && !(e.note || '').trim()) delete APPS[id];
   saveApps();
 }
@@ -560,7 +594,7 @@ function move(id, next) {
   setStage(id, next, true);
   undoState = { id, prev };
   render();
-  toast(`${JOBS[id].title} \\u2192 ${label(next)}`, () => {
+  toast(`${jobOf(id).title} \\u2192 ${label(next)}`, () => {
     setStage(id, undoState.prev, false);
     const e = APPS[id]; if (e && e.history) e.history.pop();
     saveApps(); render();
@@ -731,18 +765,23 @@ function bump(el, value) {
 }
 
 function kcard(id) {
-  const j = JOBS[id], e = APPS[id] || {};
+  const j = jobOf(id), e = APPS[id] || {};
   const note = (e.note || '').trim();
   const div = document.createElement('div');
-  div.className = 'kc'; div.draggable = true; div.dataset.id = id;
+  div.className = 'kc' + (j.gone ? ' gone' : ''); div.draggable = true; div.dataset.id = id;
   // The title is the way to the posting — a card you have parked in Applied is
   // exactly the thing you come back to apply to. draggable="false" on the
   // anchor matters: without it the browser hijacks the card's drag with its own
   // link-drag, and the card can no longer be moved by grabbing its title.
+  const title = j.url
+    ? `<a class="kt" href="${j.url}" target="_blank" rel="noopener" draggable="false"
+         data-tip="Open the posting to apply">${j.title}</a>`
+    : `<span class="kt">${j.title}</span>`;
+  const where = [j.region, j.age].filter(Boolean).join(' \\u00b7 ');
   div.innerHTML = `<button class="kx" data-tip="Back to Not applied">\\u00d7</button>
-    <a class="kt" href="${j.url}" target="_blank" rel="noopener" draggable="false"
-       data-tip="Open the posting to apply">${j.title}</a><div class="kco">${j.comp}</div>
-    <div class="kmeta"><span>${j.region}</span><span>\\u00b7</span><span>${j.age}</span>
+    ${title}<div class="kco">${j.comp}</div>
+    <div class="kmeta">${where ? '<span>' + where + '</span>' : ''}
+      ${j.gone ? '<span class="gtag" data-tip="<b>No longer in the run.</b> The posting has closed, or it was relisted under a new id. Your stage, dates and notes are kept.">GONE</span>' : ''}
       ${note ? '<span class="nbadge" data-tip="Has a note">\\u270e</span>' : ''}
       <span class="ks">${j.salary || ''}</span></div>`;
   return div;
@@ -751,7 +790,7 @@ function kcard(id) {
 function renderBoard() {
   BOARD_STAGES.forEach(k => {
     const box = document.getElementById('cb-' + k);
-    const ids = Object.keys(APPS).filter(id => JOBS[id] && stage(id) === k);
+    const ids = trackedIds(k);
     box.innerHTML = '';
     if (!ids.length) {
       box.innerHTML = '<div class="slot">Drag a role here</div>';
@@ -772,8 +811,7 @@ function renderBoard() {
   const lp = document.getElementById('listpane');
   [1, 2, 3].forEach(n => lp.classList.toggle('w' + n, railed === n));
   CLOSED_STAGES.forEach(k => {
-    bump(document.getElementById('cn-' + k),
-         Object.keys(APPS).filter(id => JOBS[id] && stage(id) === k).length);
+    bump(document.getElementById('cn-' + k), trackedIds(k).length);
   });
 }
 
@@ -878,7 +916,7 @@ function buildFlows() {
   track.forEach(k => reached[k] = 0);
   let applied = 0;
   Object.keys(APPS).forEach(id => {
-    if (!JOBS[id]) return;
+    if (!jobOf(id)) return;
     const e = APPS[id];
     const hist = (e.history && e.history.length ? e.history.map(h => h.stage) : [e.status])
       .filter(s => s && s !== 'none');
@@ -1054,17 +1092,34 @@ function downloadCSV(name, header, rows) {
 }
 
 function exportPipeline() {
-  const rows = Object.keys(APPS).filter(id => JOBS[id] && stage(id) !== 'none').map(id => {
-    const j = JOBS[id], e = APPS[id], h = e.history || [];
+  const rows = trackedIds(null).map(id => {
+    const j = jobOf(id), e = APPS[id], h = e.history || [];
     return [j.comp, j.title, label(stage(id)), e.applied_date || '',
             h.length ? h[0].date : '', h.length ? h[h.length - 1].date : '',
             h.map(x => label(x.stage)).join(' > '),
-            j.score, j.salary, j.region, j.age,
+            j.score, j.salary, j.region, j.age, j.gone ? 'closed' : 'listed',
             (e.note || '').split(String.fromCharCode(10)).join(' '), j.url];
   });
   downloadCSV('jobscope-pipeline',
     ['Company', 'Role', 'Stage', 'Applied', 'First moved', 'Last moved', 'Path',
-     'Score', 'Salary', 'Location', 'Posted', 'Note', 'URL'], rows);
+     'Score', 'Salary', 'Location', 'Posted', 'Posting', 'Note', 'URL'], rows);
+}
+
+// The board otherwise exists only in this browser's localStorage — clearing
+// site data, switching browsers or moving machines loses every application you
+// have logged. build_dashboard.py already SEEDS the page from
+// applications.json at the skill root; nothing ever wrote that file. This does,
+// under exactly that name, so putting it back closes the loop.
+function exportApps() {
+  const n = Object.keys(APPS).length;
+  if (!n) { toast('Nothing tracked yet', null); return; }
+  const blob = new Blob([JSON.stringify(APPS, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'applications.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Saved applications.json \\u2014 put it in the skill folder to keep it', null);
 }
 
 function exportVisible() {
@@ -1082,6 +1137,7 @@ function exportVisible() {
 
 $('#csvPipe').addEventListener('click', exportPipeline);
 $('#csvAll').addEventListener('click', exportVisible);
+$('#jsonApps').addEventListener('click', exportApps);
 
 /* ------------------------------------------------------- companies sheet */
 
@@ -1190,8 +1246,7 @@ function render() {
   staggered = true;
   $('#shown').textContent = n;
   $('#emptyList').classList.toggle('hidden', n !== 0);
-  const tracked = Object.keys(APPS).filter(id => JOBS[id] && stage(id) !== 'none');
-  $('#kTracked').textContent = tracked.length;
+  $('#kTracked').textContent = trackedIds(null).length;
   $$('.fdd').forEach(dd => {
     const fields = dd.dataset.facet ? [dd.dataset.facet] : JSON.parse(dd.dataset.fields || '[]');
     const c = fields.reduce((a, f) => a + facets[f].size, 0);
@@ -1250,12 +1305,17 @@ $('#newBtn').addEventListener('click', e => {
 $('#ghostBtn').addEventListener('click', e => {
   hideGhosts = !hideGhosts; e.target.classList.toggle('on', hideGhosts); render();
 });
-$('#clrBtn').addEventListener('click', () => {
+// Reset used to switch Fresh OFF while the page boots with it ON, so "clear
+// everything" and "reload" left you looking at different lists. One definition
+// of the starting state now, shared with the wordmark.
+function resetFilters() {
   for (const f in facets) facets[f].clear();
-  newOnly = hideGhosts = false; freshOnly = false;
-  ['freshBtn', 'newBtn', 'ghostBtn'].forEach(i => $('#' + i).classList.remove('on'));
-  q.value = ''; render();
-});
+  newOnly = hideGhosts = false; freshOnly = true;
+  $('#freshBtn').classList.add('on');
+  ['newBtn', 'ghostBtn'].forEach(i => $('#' + i).classList.remove('on'));
+  q.value = '';
+}
+$('#clrBtn').addEventListener('click', () => { resetFilters(); render(); });
 // The wordmark is the way back to the start: default view, nothing filtered.
 // ctrl/middle-click still follows the href and reloads the page instead.
 $('.brand').addEventListener('click', e => {
@@ -1263,12 +1323,8 @@ $('.brand').addEventListener('click', e => {
   e.preventDefault();
   closeCompanies();
   closeMenus();
-  for (const f in facets) facets[f].clear();
-  newOnly = hideGhosts = false; freshOnly = true;
-  q.value = '';
+  resetFilters();
   sortKey = 'score'; sortDir = -1;
-  $('#freshBtn').classList.add('on');
-  ['newBtn', 'ghostBtn'].forEach(i => $('#' + i).classList.remove('on'));
   $$('.lhead span').forEach(x => x.classList.toggle('sorted', x.dataset.sort === sortKey));
   sortRows();
   showTab('board');
