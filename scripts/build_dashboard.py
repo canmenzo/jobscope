@@ -419,7 +419,7 @@ PAGE = """<!doctype html>
 __FILTERS__
         <button class="fbtn" id="newBtn" data-tip="Only roles that were not present on any previous run">New</button>
         <button class="fbtn" id="ghostBtn" data-tip="Hide roles flagged as possible ghost jobs — open unusually long, or the same title repeatedly relisted under a new id.">Hide ghosts</button>
-        <button class="fbtn" id="clrBtn" data-tip="Clear the search and every active filter">Reset</button>
+        <button class="fbtn" id="clrBtn" data-tip="Back to the starting view — search cleared, every filter off, Fresh 30d back on">Reset</button>
       </div>
       <div class="lhead">
         <span data-sort="score" class="sorted" data-tip="__SCORETIP__">Score</span>
@@ -458,6 +458,7 @@ __CLOSED__
             <div class="acts">
               <button class="tbtn" id="csvPipe" data-tip="Download everything you are tracking — stage, dates, the path it took, your notes. UTF-8 CSV with a BOM, so Excel opens it correctly on a double-click.">Pipeline CSV</button>
               <button class="tbtn" id="csvAll" data-tip="Download the roles currently passing your filters, with score, stage, salary, experience and sponsorship. Same CSV format.">Roles CSV</button>
+              <button class="tbtn" id="jsonApps" data-tip="<b>Back up your pipeline.</b> Everything you have tracked, as applications.json. Drop that file in the skill folder next to scripts/ and every future run starts from it &mdash; otherwise the board lives only in this browser and clearing site data wipes it.">Backup JSON</button>
             </div>
           </div>
           <svg id="sankey" role="img" aria-label="Sankey diagram of application stages"></svg>
