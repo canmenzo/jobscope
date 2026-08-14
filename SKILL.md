@@ -112,9 +112,11 @@ why: a missing free API key otherwise looks identical to a source with no jobs).
 Clicking a live card filters the list to it.
 
 Filters are one thin row above the list: search, Fresh ≤30d (ON by default),
-Stage, Type, Category, and More (Level, Experience, Posted, Salary, State,
-Source, Company). All dropdowns are searchable multi-selects; OR within a
-group, AND across groups. Filters and the active tab persist to the URL hash
+Stage, Type, Category, State, and More (Level, Experience, Posted, Salary,
+Source, Company, Sponsorship). All dropdowns are searchable multi-selects; OR
+within a group, AND across groups. In State, roles that are remote anywhere in
+the US belong to no state and answer to the pinned first option "Remote / US" —
+picking a state alone hides them, and the dashboard toasts once to say so. Filters and the active tab persist to the URL hash
 and localStorage.
 
 ## Step 4 — present in chat

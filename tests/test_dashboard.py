@@ -1,6 +1,7 @@
 """Cross-run history signals and duplicate merging."""
 import pytest
 from build_dashboard import (
+    ANY_STATE,
     GHOST_OPEN_DAYS,
     age_text,
     enrich,
@@ -8,6 +9,7 @@ from build_dashboard import (
     norm_title,
     region_text,
     sal_num,
+    state_tokens,
 )
 from job_hunt import annotate_history
 
@@ -189,3 +191,30 @@ def test_country_only_location_is_shortened(loc):
 
 def test_a_real_city_location_is_left_alone():
     assert region_text(enrich(_job(location="Charlotte, NC"), "workday", None)) == "NC"
+
+
+# --- state_tokens ---------------------------------------------------------
+
+def test_a_state_tied_role_answers_to_its_state_only():
+    assert state_tokens(_enriched("Sec Eng", "Acme", "Austin, TX", 90)) == ["TX"]
+
+
+def test_remote_anywhere_answers_to_the_anywhere_bucket():
+    # It is tied to no state, so a state filter must not be its only way in.
+    assert state_tokens(_enriched("Sec Eng", "Acme", "Remote - USA", 90)) == [ANY_STATE]
+
+
+def test_state_tied_remote_stays_a_state():
+    j = _enriched("Sec Eng", "Acme", "Remote - California", 90)
+    assert state_tokens(j) == ["CA"]
+
+
+def test_role_with_no_location_at_all_falls_into_the_anywhere_bucket():
+    assert state_tokens(_enriched("Sec Eng", "Acme", "", 90)) == [ANY_STATE]
+
+
+def test_merged_role_with_a_remote_copy_is_both():
+    jobs = [_enriched("Sec Eng", "Acme", "Austin, TX", 90),
+            _enriched("Sec Eng", "Acme", "Remote - USA", 88)]
+    out, _ = merge_duplicates(jobs)
+    assert state_tokens(out[0]) == ["TX", ANY_STATE]

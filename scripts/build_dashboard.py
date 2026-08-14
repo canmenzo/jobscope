@@ -32,7 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard_assets import CSS, JS  # noqa: E402
-from filter import classify_location  # noqa: E402
+from filter import US_STATES, classify_location  # noqa: E402
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 RUNS = SKILL_ROOT / "runs"
@@ -126,6 +126,10 @@ SAL_LABEL = {"1": "Listed", "0": "Not listed"}
 SPON_LABEL = {"yes": "Sponsors visas", "no": "Will not sponsor",
               "": "Not stated"}
 STALE_DAYS = 60
+# State token for a role that is tied to no state at all. It is labelled exactly
+# as the Location column labels those rows, so the filter and the list agree.
+ANY_STATE = "any"
+ANY_STATE_LABEL = "Remote / US"
 # Below this share of readable fit signals, mark the score as a guess. Set just
 # under the "salary not listed" case (0.9), which is too common to be a warning.
 THIN_CONFIDENCE = 0.8
@@ -145,12 +149,17 @@ SCORE_TIP = (
     "posted pay band sits above you). Fit carries the larger share. "
     "The chip is tinted by reachability: <b>green</b> you clear comfortably, "
     "<b>amber</b> is a stretch, <b>red</b> is a reach. "
+    "A <b>dashed</b> frame instead of a solid one means the posting stated too "
+    "little to judge — no years, no pay, barely any text — so that number is a "
+    "guess rather than a reading. "
     "Hover any score to see what pulled that one down. "
     "Add config/profile.yaml to switch fit on; without it this is relevance only."
 )
 
 # Facets shown as their own button; everything else lives under "More".
-PRIMARY_FACETS = ["status", "type", "cat"]
+# State earns a button: "can I work there" is asked of every single row, and
+# Type only answers half of it (remote vs on-site, never which state).
+PRIMARY_FACETS = ["status", "type", "cat", "state"]
 FACETS = [
     ("status", "Stage"), ("type", "Type"), ("cat", "Category"), ("level", "Level"),
     ("yoe", "Experience"), ("age", "Posted"), ("sal", "Salary"), ("state", "State"),
@@ -255,6 +264,23 @@ def merge_duplicates(jobs):
     return out, merged
 
 
+def state_tokens(j):
+    """The State filter values a role answers to.
+
+    A role that is remote anywhere in the US is tied to no state, so a plain
+    state filter would hide exactly the roles you can take from any state. Those
+    answer to ANY_STATE instead, which the menu pins to the top — pick your state
+    and "Remote / US" together to get everything you could actually work.
+
+    A role merged across cities that includes a remote posting is both: it has
+    real states AND belongs in the anywhere bucket.
+    """
+    toks = list(j["_states"])
+    if not toks or "remote" in j["_types"]:
+        toks.append(ANY_STATE)
+    return toks
+
+
 def sal_num(s):
     """Lower bound of an extracted '$140K–$180K' range, for sorting."""
     m = re.search(r"\$(\d+)K", s or "")
@@ -309,7 +335,7 @@ def row(j):
        data-search="{esc((j['title'] + ' ' + j['comp'] + ' ' + j.get('location', '')).lower())}"
        data-new="{int(bool(j.get('new')))}" data-ghost="{int(j['_ghost'])}"
        data-type="{' '.join(j['_types'])}" data-level="{esc(j.get('level') or 'none')}"
-       data-cat="{slug(j['_cat'])}" data-src="{j['_src']}" data-state="{' '.join(j['_states'])}"
+       data-cat="{slug(j['_cat'])}" data-src="{j['_src']}" data-state="{' '.join(state_tokens(j))}"
        data-age="{j['_agebucket']}" data-sal="{int(bool(j.get('salary')))}"
        data-yoe="{j['_yoebucket']}" data-spon="{j.get('sponsorship') or ''}"
        data-company="{slug(j['comp'])}"
@@ -344,13 +370,19 @@ def facet_meta(jobs):
         "cat": {slug(c): c for c, _ in CATEGORIES} | {"other": "Other"},
         "level": {lv: lv.capitalize() for lv in LEVEL_ORDER} | {"none": "Unspecified"},
         "yoe": YOE_LABEL, "age": AGE_LABEL, "sal": SAL_LABEL,
-        "state": {}, "src": SOURCE_NAME, "company": cnames,
+        # Both halves of the name are in the label so the menu search answers to
+        # "florida" and to "fl".
+        "state": {ANY_STATE: ANY_STATE_LABEL}
+                 | {ab: f"{name} ({ab})" for ab, name in US_STATES.items()},
+        "src": SOURCE_NAME, "company": cnames,
         "spon": SPON_LABEL,
     }
     order = {
         "status": [k for k, _, _ in STAGES], "type": list(TYPE_LABEL),
         "level": LEVEL_ORDER, "yoe": list(YOE_LABEL), "age": list(AGE_LABEL),
-        "sal": ["1", "0"], "cat": [], "state": [], "src": [], "company": [],
+        # ANY_STATE first: it is the biggest bucket and the one a state
+        # selection would otherwise quietly throw away.
+        "sal": ["1", "0"], "cat": [], "state": [ANY_STATE], "src": [], "company": [],
         "spon": ["no", "yes", ""],
     }
     return {f: {"order": order.get(f, []), "labels": labels.get(f, {})}
@@ -372,6 +404,11 @@ FACET_TIPS = {
     "status": "Where each role sits in your pipeline. Tracked roles leave the list once you move them onto the board — pick a stage here to bring them back.",
     "type": "Remote (anywhere US) vs remote tied to a state/metro, hybrid or on-site. A role posted in several locations answers to each of them.",
     "cat": "Role family, derived from the job title",
+    "state": ("Which state a role is tied to. A role that is remote anywhere in "
+              "the US is tied to <b>none</b> — those sit at the top of the list as "
+              "<b>Remote / US</b>, the same words the Location column uses. Pick "
+              "your state <i>and</i> Remote / US to see everything you could "
+              "actually work from there."),
 }
 
 
