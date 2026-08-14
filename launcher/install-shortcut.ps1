@@ -1,6 +1,6 @@
 <#
 Creates two shortcuts on the Desktop and in the Start Menu:
-  Job Scope        - runs a fresh hunt (~20s of fetching), then opens it
+  Job Scope        - runs a fresh hunt (~90s of fetching), then opens it
   Job Scope (Open) - just rebuilds and opens the last result, no network
 
     powershell -ExecutionPolicy Bypass -File launcher\install-shortcut.ps1
