@@ -130,9 +130,6 @@ STALE_DAYS = 60
 # as the Location column labels those rows, so the filter and the list agree.
 ANY_STATE = "any"
 ANY_STATE_LABEL = "Remote / US"
-# Below this share of readable fit signals, mark the score as a guess. Set just
-# under the "salary not listed" case (0.9), which is too common to be a warning.
-THIN_CONFIDENCE = 0.8
 GHOST_OPEN_DAYS = 45
 
 def fit_band(fit):
@@ -149,9 +146,8 @@ SCORE_TIP = (
     "posted pay band sits above you). Fit carries the larger share. "
     "The chip is tinted by reachability: <b>green</b> you clear comfortably, "
     "<b>amber</b> is a stretch, <b>red</b> is a reach. "
-    "A <b>dashed</b> frame instead of a solid one means the posting stated too "
-    "little to judge — no years, no pay, barely any text — so that number is a "
-    "guess rather than a reading. "
+    "A posting that states no years, no pay and barely any text is <b>marked "
+    "down</b> for it rather than given the benefit of the doubt. "
     "Hover any score to see what pulled that one down. "
     "Add config/profile.yaml to switch fit on; without it this is relevance only."
 )
@@ -301,16 +297,10 @@ def row(j):
     if j.get("fit") is None:
         score_tip = ""
     else:
+        # Whatever the posting failed to state has already been charged to the
+        # number itself and is listed among the reasons, so the chip needs no
+        # second visual language of its own.
         why = "; ".join(j.get("fit_reasons") or []) or "nothing holding it back"
-        conf = j.get("fit_confidence")
-        # A score built on half a posting is worth saying out loud, so a high
-        # number that only means "we couldn't read anything bad" is legible.
-        # Only a real gap earns the marker: most postings simply omit salary,
-        # and flagging 60% of the list would make the marker mean nothing.
-        if conf is not None and conf < 1:
-            why += f" — read {conf:.0%} of the usual signals"
-            if conf < THIN_CONFIDENCE:
-                band += " thin"
         score_tip = (f' data-tip="<b>{fit_band(j["fit"])} &middot; relevance '
                      f'{j.get("relevance", j["score"])} &middot; fit {j["fit"]}'
                      f'</b><br>{esc(why)}"')

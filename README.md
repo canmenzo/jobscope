@@ -263,23 +263,28 @@ matches. Fit is the missing half, computed from `config/profile.yaml`:
 
 Two rules stop fit from flattering a posting:
 
-**Missing data is not good news.** About half of all postings state no years and
-no salary. An earlier version handed out 72% of the experience weight and 70% of
+**Missing data scores zero.** About half of all postings state no years and no
+salary. An earlier version handed out 72% of the experience weight and 70% of
 the pay weight for saying nothing, so the least informative listings floated to
 the top — a customer-facing "Sr Forward Deployed Engineer" with no stated bar
-scored 90 to a 2.5-year analyst. Now an unreadable component is dropped from the
-denominator and the result is shrunk toward a neutral 50 in proportion to what
-could not be read; an unstated years bar falls back to what the title implies
-(senior ⇒ ~5 years). The same posting now scores 78, and the tooltip says why.
-Score chips built on under 80% of the signals are drawn with a dashed border.
+scored 90 to a 2.5-year analyst. A later version shrank the score toward a
+neutral 50 instead, which still quietly *lifted* a weak posting and needed a
+dashed chip in the list to warn about it. Now what a posting doesn't state
+simply earns nothing, exactly like a bad answer, and the reasons name the
+deduction (`−10 for what it does not state (no pay range)`). The one thing still
+inferred is an unstated years bar, from what the title implies (senior ⇒ ~5
+years, an unlevelled title ⇒ mid). The weights sum to 100, so a component's
+weight is literally the points forfeited: no pay range −10, no readable
+description −25.
 
 **Common skills are not evidence.** `python`, `git` and `docker` appear in
 almost every engineering posting, so counting raw hits let any generic role max
 out the skills component. Each run measures how often each of your skills
 actually occurs across the postings it pulled and weights the rare ones
 accordingly, with "full marks" pegged to the top decile of that run's own
-matches. Postings too short to read (some APIs return only a teaser) count as
-unknown rather than as a bad match.
+matches. Postings too short to read (some APIs return only a teaser) are treated
+as unknown rather than accused of naming none of your tools — they forfeit the
+component either way, but the reason tells the truth about which it was.
 
 The displayed score is a blend, weighted toward fit, and the score chip is
 tinted by reachability — **green** you clear comfortably, **amber** is a

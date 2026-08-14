@@ -25,14 +25,17 @@ someone who hasn't onboarded.
 Two rules keep the number honest, and both exist because the first version of
 this file was far too generous:
 
-  MISSING DATA IS NOT GOOD NEWS. Roughly half of all postings state no years
-  bar and no salary. The old scorer handed out 72% of the experience weight and
-  70% of the pay weight for saying nothing, so the least informative postings
-  floated to the top. Now an unknown component is dropped from the denominator
-  entirely and the result is shrunk toward a neutral 50 in proportion to how
-  much we could not read — see `score_fit`. A missing years bar additionally
-  falls back to what the TITLE implies (`LEVEL_YOE`), because "Sr <anything>"
-  telling you nothing about years does not make it a two-year job.
+  MISSING DATA SCORES ZERO. Roughly half of all postings state no years bar and
+  no salary. The old scorer handed out 72% of the experience weight and 70% of
+  the pay weight for saying nothing, so the least informative postings floated to
+  the top; a later version shrank the score toward a neutral 50 instead, which
+  still quietly LIFTED a weak posting and needed a dashed chip in the UI to warn
+  about it. Now what a posting does not state simply earns nothing, exactly like
+  a bad answer, and the deduction is named in the reasons. A missing years bar is
+  the one thing still inferred — from what the TITLE implies (`LEVEL_YOE`) —
+  because "Sr <anything>" saying nothing about years does not make it a two-year
+  job, and an unlevelled title is read as mid, the same assumption the seniority
+  component already makes.
 
   COMMON SKILLS ARE NOT EVIDENCE. `python`, `git`, `docker` and `sql` appear in
   almost every engineering posting, so counting raw hits let any generic
@@ -66,9 +69,10 @@ W_YEARS, W_LEVEL, W_SKILLS, W_PAY = 40, 25, 25, 10
 # needs it. Low enough to sink below everything reachable, not zero — the score
 # floor is reserved for "we could not read this at all".
 SPONSOR_BLOCKED = 5
-# What an unreadable component defaults to. 50 = "no opinion", so a posting we
-# know nothing about lands mid-pack instead of near the top.
-NEUTRAL = 50.0
+# The four weights sum to 100, so a component's weight IS the number of points
+# a posting forfeits by not stating it — "−25 for no readable description" is
+# literal, not a metaphor.
+TOTAL_WEIGHT = W_YEARS + W_LEVEL + W_SKILLS + W_PAY
 # Percentile of the corpus's skill-match weight that counts as a full score,
 # and the floor under it in typical-rarity skills (see build_skill_idf).
 SKILL_PCTL = 0.85
@@ -163,10 +167,15 @@ def build_skill_idf(profile, descriptions):
 def _years_points(job_yoe, level, years):
     inferred = ""
     if not job_yoe:
-        job_yoe = LEVEL_YOE.get((level or "").lower())
-        if job_yoe is None:
-            return 0.0, 0.0, ""          # no bar stated, no level to infer from
-        inferred = f"no years stated; a {level} title usually means ~{job_yoe}"
+        # An unlevelled title is read as mid here for the same reason it is in
+        # _level_points: "Security Engineer" is a mid-band ask. Inferring is what
+        # keeps a plain, well-written posting from being charged for a bar that
+        # its title already implies.
+        lvl = (level or DEFAULT_LEVEL).lower()
+        if lvl not in LEVEL_YOE:
+            lvl = DEFAULT_LEVEL
+        job_yoe = LEVEL_YOE[lvl]
+        inferred = f"no years stated; a {lvl} title usually means ~{job_yoe}"
     gap = job_yoe - years
     if gap <= 0:
         return W_YEARS, W_YEARS, inferred
@@ -255,32 +264,26 @@ def score_fit(job, profile):
     if profile.get("needs_sponsorship") and job.get("sponsorship") == "no":
         return SPONSOR_BLOCKED, ["employer states it cannot sponsor visas"]
 
-    reasons = []
-    got = weight = 0.0
-    for pts, w, why in (
-        _years_points(job.get("yoe"), job.get("level"), profile["years"]),
-        _level_points(job.get("level"), profile["target_levels"]),
-        _skill_points(text, profile),
-        _pay_points(job.get("salary_low"), profile["salary_target"]),
+    reasons, got, unread = [], 0.0, []
+    for label, full, (pts, weight, why) in (
+        ("no years stated", W_YEARS,
+         _years_points(job.get("yoe"), job.get("level"), profile["years"])),
+        ("no level", W_LEVEL,
+         _level_points(job.get("level"), profile["target_levels"])),
+        ("no readable description", W_SKILLS, _skill_points(text, profile)),
+        ("no pay range", W_PAY,
+         _pay_points(job.get("salary_low"), profile["salary_target"])),
     ):
         got += pts
-        weight += w
+        if not weight:                      # nothing to read: scores zero, like
+            unread.append((label, full))    # any other answer we cannot credit
         if why:
             reasons.append(why)
 
-    total_weight = W_YEARS + W_LEVEL + W_SKILLS + W_PAY
-    if weight <= 0:
-        return int(NEUTRAL), ["nothing readable in this posting"]
-
-    # Shrink toward "no opinion" in proportion to what we could not read, so a
-    # posting with no years bar, no salary and no description can never present
-    # as a confident match.
-    confidence = weight / total_weight
-    fit = (got / weight) * 100.0 * confidence + NEUTRAL * (1 - confidence)
-    job["fit_confidence"] = round(confidence, 2)
-
-    if confidence < 0.6:
-        reasons.append(f"thin posting — only {confidence:.0%} of the signals were readable")
+    fit = got / TOTAL_WEIGHT * 100.0
+    if unread:
+        reasons.append("−{:g} for what it does not state ({})".format(
+            sum(w for _, w in unread), ", ".join(lab for lab, _ in unread)))
     if profile.get("needs_sponsorship") and job.get("sponsorship") == "yes":
         fit = min(100.0, fit + 4)
         reasons.append("sponsors visas")

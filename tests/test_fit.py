@@ -5,7 +5,15 @@ call and will get tuned; what must never break is the ranking — a role you can
 get has to outscore one you cannot, for the reason a human would give.
 """
 import pytest
-from fit import MIN_SKILL_TEXT, band, blend, build_skill_idf, load_profile, score_fit
+from fit import (
+    MIN_SKILL_TEXT,
+    W_PAY,
+    band,
+    blend,
+    build_skill_idf,
+    load_profile,
+    score_fit,
+)
 
 PROFILE = load_profile({
     "years_experience": 2.5,
@@ -124,13 +132,15 @@ def test_skills_in_the_title_count():
 def test_a_truncated_description_is_unreadable_not_a_bad_match():
     """Aggregators return a teaser, not the posting.
 
-    Scoring that as "mentions none of your tools" would systematically bury
-    every job from a source whose API happens to truncate.
+    It still forfeits the skills points — nothing unstated is credited — but it
+    is not accused of naming none of your tools, and it scores exactly as if the
+    description were absent rather than being judged on a marketing sentence.
     """
     teaser = "Security Analyst wanted. Great team, competitive pay."
     assert len(teaser) < MIN_SKILL_TEXT
     assert not any("tools" in r for r in reasons(description=teaser))
-    assert fit(description=teaser) > fit(description=prose("terraform kubernetes"))
+    assert any("no readable description" in r for r in reasons(description=teaser))
+    assert fit(description=teaser) == fit(description="")
 
 
 # --- pay ------------------------------------------------------------------
@@ -202,26 +212,26 @@ def test_a_silent_posting_cannot_beat_a_confirmed_match():
     assert silent < known
 
 
-def test_a_silent_posting_lands_mid_pack_not_at_the_bottom():
-    # Unknown is "no opinion", not "bad" — it must not sink below a role that
-    # genuinely demands three times your experience.
+def test_silence_costs_but_a_role_you_cannot_get_still_costs_more():
     silent = fit(yoe=None, level="", salary_low=0, description="")
     bad = fit(yoe=10, level="staff", salary_low=300000,
               description=prose("terraform kubernetes"))
     assert bad < silent < 70
 
 
-def test_thin_postings_are_labelled():
-    assert any("readable" in r for r in reasons(yoe=None, level="", description=""))
+def test_unstated_things_earn_nothing():
+    body = prose("kql splunk sigma crowdstrike")
+    full = fit(yoe=2, level="mid", salary_low=120000, description=body)
+    # A band at your target earns all of W_PAY, so omitting it costs exactly that.
+    assert fit(yoe=2, level="mid", salary_low=0, description=body) == full - W_PAY
+    # And silence earns less than the weakest real answer, rather than being
+    # excused from the question.
+    assert fit(description="") < fit(description=prose("terraform kubernetes"))
 
 
-def test_confidence_is_reported():
-    j = job(yoe=2, level="mid", salary_low=120000, description=prose("kql"))
-    score_fit(j, PROFILE)
-    assert j["fit_confidence"] == 1.0
-    thin = job(yoe=None, level="", salary_low=0, description="")
-    score_fit(thin, PROFILE)
-    assert thin["fit_confidence"] < 1.0
+def test_the_deduction_says_what_was_missing():
+    why = reasons(yoe=2, level="mid", salary_low=0, description="")
+    assert any("no pay range" in r and "no readable description" in r for r in why)
 
 
 # --- years inferred from the title ----------------------------------------

@@ -151,17 +151,19 @@ and applies to everything himself.
 - **The score is a blend** of relevance (score.py) and fit (fit.py, driven by
   `config/profile.yaml`). No profile file = relevance only. Re-run the hunt
   after editing the profile; rebuilding the dashboard alone will not rescore.
-- **Fit refuses to reward missing data.** Roughly half of all postings state no
-  years and no salary; an unreadable component is dropped from the denominator
-  and the result is shrunk toward 50, so a posting we know nothing about lands
-  mid-pack rather than near the top. An unstated years bar falls back to what
-  the title implies (`fit.LEVEL_YOE`). `fit_confidence` records how much was
-  readable and the dashboard dashes the score chip below 0.8.
+- **Missing data scores zero.** Roughly half of all postings state no years and
+  no salary. An unreadable component simply earns nothing (the weights sum to
+  100, so no pay range = −10, no readable description = −25) and `score_fit`
+  names the deduction in `fit_reasons`. Do NOT reintroduce a shrink-toward-50 or
+  a confidence marker on the chip: Can rejected both — the first flattered empty
+  postings, the second made the reader decode a dashed border. An unstated years
+  bar is still inferred from the title (`fit.LEVEL_YOE`, unlevelled ⇒ mid).
 - **Skill overlap is weighted by rarity, calibrated per run** (`build_skill_idf`).
   Raw hit counts let any engineering role max out the skills component on
   `python`/`git`/`docker`; IDF over the run's own corpus makes the distinctive
-  tools carry the score. Descriptions shorter than `MIN_SKILL_TEXT` count as
-  unreadable, not as a bad match — otherwise truncating APIs get punished.
+  tools carry the score. Descriptions shorter than `MIN_SKILL_TEXT` are reported
+  as unreadable rather than as "names none of your tools" — they forfeit the
+  component either way, but the reason has to be honest about which it was.
 - **Cross-run signals:** `seen_jobs.json` drives `open_days` (how long we've
   watched a req stay open) and `reposted` (same company+title under a new id).
   Either flags a possible ghost req. Same title at the same company across
