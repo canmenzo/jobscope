@@ -25,7 +25,13 @@ import yaml
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 
-from fetch import board_url, fetch_all, fetch_broad, hydrate_descriptions  # noqa: E402
+from fetch import (  # noqa: E402
+    board_url,
+    fetch_all,
+    fetch_broad,
+    hydrate_descriptions,
+    source_status,
+)
 from filter import build_scope, filter_jobs  # noqa: E402
 from fit import blend, build_skill_idf, load_profile, score_fit  # noqa: E402
 from score import score_all  # noqa: E402
@@ -407,6 +413,7 @@ def main():
             "jobs_new": sum(1 for j in scored if j.get("new")),
         },
         "companies": companies_out,
+        "sources": source_status(config, companies),
     }
     (run_dir / "_run.json").write_text(json.dumps(run, indent=2), encoding="utf-8")
 

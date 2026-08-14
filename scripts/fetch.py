@@ -64,6 +64,26 @@ ADZUNA_MAX_AGE = 45     # days
 USAJOBS_PAGE = 250      # server max is 500; 250 keeps responses manageable
 USAJOBS_PAGES = 2
 
+# Every source this tool can pull from: display name, kind, and where to read
+# about it. kind "board" = per-company (you name the employer), "broad" = per
+# query (you name the role). source_status() turns this into the on/off list the
+# dashboard's source sheet renders, so a source that is off says so rather than
+# silently contributing nothing.
+SOURCE_INFO = {
+    "greenhouse": ("Greenhouse", "board", "https://www.greenhouse.io/"),
+    "lever": ("Lever", "board", "https://www.lever.co/"),
+    "ashby": ("Ashby", "board", "https://www.ashbyhq.com/"),
+    "smartrecruiters": ("SmartRecruiters", "board", "https://www.smartrecruiters.com/"),
+    "recruitee": ("Recruitee", "board", "https://recruitee.com/"),
+    "workday": ("Workday", "board", "https://www.workday.com/"),
+    "muse": ("The Muse", "broad", "https://www.themuse.com/developers/api/v2"),
+    "adzuna": ("Adzuna", "broad", "https://developer.adzuna.com/"),
+    "usajobs": ("USAJOBS", "broad", "https://developer.usajobs.gov/apirequest/"),
+}
+# config keys that must be filled in before a keyed source can run
+KEY_FIELDS = {"adzuna": ("adzuna_app_id", "adzuna_app_key"),
+              "usajobs": ("usajobs_email", "usajobs_key")}
+
 # Public board URL per source — used as the careers link when a slug fails.
 BOARD_URL = {
     "greenhouse": "https://job-boards.greenhouse.io/{slug}",
@@ -577,6 +597,37 @@ def statuses_for(jobs):
         })
         st["count"] += 1
     return sorted(by_key.values(), key=lambda s: (s["source"], s["slug"]))
+
+
+def source_status(config, companies):
+    """Where this run was allowed to look, source by source.
+
+    Returns one record per known source — including the ones that contributed
+    nothing — with why it is off. A source that is off because a free API key is
+    missing looks exactly like a source that found no jobs unless it says so.
+    """
+    enabled = config.get("broad_sources") or {}
+    picked = {}
+    for c in companies:
+        picked[c["source"]] = picked.get(c["source"], 0) + 1
+    out = []
+    for key, (name, kind, url) in SOURCE_INFO.items():
+        boards = picked.get(key, 0)
+        missing = [f for f in KEY_FIELDS.get(key, ()) if not enabled.get(f)]
+        if kind == "board":
+            on = bool(boards)
+            why = "" if on else "no boards on this ATS in your company selection"
+        elif missing:
+            # The flag being false is the symptom; the missing key is the cause,
+            # and it is the one the reader can do something about.
+            on, why = False, f"needs a free API key — set {' + '.join(missing)} in config"
+        elif not enabled.get(key):
+            on, why = False, f"off in config (broad_sources.{key})"
+        else:
+            on, why = True, ""
+        out.append({"key": key, "name": name, "kind": kind, "url": url,
+                    "on": on, "why": why, "boards": boards})
+    return out
 
 
 def fetch_broad(config, log):

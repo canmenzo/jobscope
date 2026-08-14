@@ -390,6 +390,23 @@ button{font-family:inherit}
 .cgo{color:var(--ink-4);text-decoration:none;font-size:12px;padding:2px 3px}
 .cgo:hover{color:var(--neon-ink);text-shadow:0 0 10px #c026d366}
 
+/* --------------------------------------------------------- sources sheet */
+/* Same cards as the companies sheet, one step wider and taller: a provider
+   needs a sentence saying what it is, which a company name does not. */
+.ovhead .ovx{margin-left:auto}
+.ovhead .ovsearch+.ovx{margin-left:0}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(304px,1fr));gap:8px}
+.sgrid .ccard{align-items:flex-start}
+/* the company sheet clips its one-line meta to keep cards even; here the line
+   is the actual answer ("243 roles from 77 companies"), so it wraps instead */
+.sgrid .cmeta{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.45}
+.skind{font-size:8.5px;letter-spacing:1.1px;text-transform:uppercase;font-weight:700;
+       padding:1px 5px;border-radius:4px;margin-left:7px;vertical-align:1px;
+       color:var(--ink-3);background:var(--field);border:1px solid var(--edge-2)}
+.skind.broad{color:var(--cyan-ink);border-color:#0e5c72;background:#03181f}
+.sdesc{font-size:10.5px;line-height:1.5;color:var(--ink-3);margin-top:5px;white-space:normal}
+.ccard.off .ccount{color:var(--amber);background:#1c1403;border-color:#5c4410}
+
 .tip{position:fixed;z-index:90;max-width:330px;padding:9px 12px;font-size:12px;line-height:1.55;
      color:var(--ink-2);background:#0a0a13;border:1px solid var(--edge-2);border-radius:9px;
      pointer-events:none;box-shadow:0 12px 34px #000d,0 0 22px #c026d333;
@@ -502,6 +519,7 @@ const FACET_META = __FACET_META__;   // {field: {order:[], labels:{}}}
 const PRIMARY_FACETS = __PRIMARY_FACETS__;
 const STALE_BUCKETS = __STALE_BUCKETS__;
 const COMPANIES = __COMPANY_DATA__;  // every company searched, matched or not
+const SOURCES = __SOURCE_DATA__;     // every provider available, on or off
 
 const LSKEY = 'jobscope.apps', VIEWKEY = 'jobscope.view';
 const $ = s => document.querySelector(s);
@@ -1227,6 +1245,69 @@ compBody.addEventListener('click', e => {
     toast(card.dataset.name + ': every role is hidden by your other filters', null);
 });
 
+/* --------------------------------------------------------- sources sheet */
+
+// The companies sheet answers "who did you look at"; this one answers "where
+// did you look at all". A provider that is switched off is listed with the
+// reason, so a gap in coverage reads as a gap rather than as an absence of jobs.
+const srcOv = $('#srcOv'), srcBody = $('#srcBody');
+
+function srcCard(s) {
+  const unit = (s.kind === 'board' ? 'board' : 'employer') + (s.b === 1 ? '' : 's');
+  const failed = s.f ? ' \\u00b7 ' + s.f + ' failed' : '';
+  const line = !s.on ? s.why
+             : s.m ? s.m + ' roles from ' + s.e + ' companies \\u00b7 '
+                     + s.p + ' postings pulled across ' + s.b + ' ' + unit + failed
+             : s.b ? s.p + ' postings across ' + s.b + ' ' + unit
+                     + ' \\u00b7 none matched your filters' + failed
+                   : 'nothing came back';
+  const kind = s.kind === 'board'
+             ? '<span class="skind" data-tip="Per company: you name the employer and get its whole board.">board</span>'
+             : '<span class="skind broad" data-tip="Per query: you name the role and get whoever is hiring for it, including employers no catalog would list.">aggregator</span>';
+  const go = s.u ? `<a class="cgo" href="${s.u}" target="_blank" rel="noopener"
+                       data-tip="Read about this source">&#8599;</a>` : '';
+  const tip = s.m ? 'Click to show only the roles that came from here'
+            : s.on ? 'This source ran, but nothing it returned matched your filters.'
+                   : 'This source did not run for this hunt.';
+  return `<div class="ccard${s.m ? '' : ' dim'}${s.on ? '' : ' off'}"
+    data-key="${s.k}" data-name="${s.n}" data-tip="${tip}">
+    <div class="cinfo">
+      <div class="cname">${s.n}${kind}</div>
+      <div class="cmeta${s.on ? '' : ' err'}">${line}</div>
+      <div class="sdesc">${s.d}</div>
+    </div>
+    <span class="ccount">${s.on ? s.m : 'off'}</span>${go}</div>`;
+}
+
+function openSources() {
+  srcBody.innerHTML = `<div class="cgrid sgrid">${SOURCES.map(srcCard).join('')}</div>`;
+  const live = SOURCES.filter(s => s.on).length;
+  $('#srcSub').textContent = live + ' of ' + SOURCES.length + ' searched \\u00b7 '
+    + SOURCES.filter(s => s.m).length + ' brought back roles you can open';
+  srcOv.classList.remove('hidden');
+}
+const closeSources = () => srcOv.classList.add('hidden');
+
+$('#kSources').addEventListener('click', openSources);
+$('#kSources').addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSources(); }
+});
+$('#srcX').addEventListener('click', closeSources);
+srcOv.addEventListener('click', e => { if (e.target === srcOv) closeSources(); });
+srcBody.addEventListener('click', e => {
+  if (e.target.closest('.cgo')) return;
+  const card = e.target.closest('.ccard');
+  if (!card || card.classList.contains('dim')) return;
+  facets.src.clear();
+  facets.src.add(card.dataset.key);
+  q.value = '';
+  closeSources();
+  showTab('board');
+  render();
+  if ($('#shown').textContent === '0')
+    toast(card.dataset.name + ': every role from it is hidden by your other filters', null);
+});
+
 /* ----------------------------------------------------------------- views */
 
 function showTab(name) {
@@ -1363,7 +1444,9 @@ addEventListener('resize', () => {
   if (!$('#viewFlow').classList.contains('hidden')) drawSankey();
 });
 addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeMenus(); closeCompanies(); tip.classList.add('hidden'); }
+  if (e.key === 'Escape') {
+    closeMenus(); closeCompanies(); closeSources(); tip.classList.add('hidden');
+  }
   if (e.key === '/' && e.target !== q && e.target !== compQ) { e.preventDefault(); q.focus(); }
 });
 

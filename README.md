@@ -137,6 +137,22 @@ A dense **list** on the left and a drag-and-drop **kanban** on the right.
   reload — or the next run's dashboard — returns to the same view. Copy the URL
   to bookmark a slice.
 
+### Coverage
+
+Two of the header stats open a sheet, because *what a run searched* is a
+different question from *what it found*:
+
+- **companies** — every company board the run touched, matched or not, with its
+  match count and a link to its careers page. Boards that came back empty or
+  failed to fetch say so on their own face.
+- **sources** — every provider the tool can pull from: the ATS boards it fetches
+  company by company, and the aggregators it searches by role. Each card says
+  what that source is, what it brought in (roles, companies, raw postings, failed
+  boards) and — when it is switched off — why. A source waiting on a free API key
+  looks exactly like a source with no jobs otherwise.
+
+Clicking a card that has roles filters the list down to it.
+
 ### Flow
 
 ![The flow view](docs/pipeline.png)
