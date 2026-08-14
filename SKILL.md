@@ -104,6 +104,13 @@ and moving backwards trims the stages you undid. Click a card for a note.
 **Flow** — a conversion strip plus a full-width Sankey of how roles moved
 between stages, with drop-offs branching where they happened.
 
+Two header stats open a coverage sheet: **companies** (every board searched,
+matched or not, with a careers link) and **sources** (every provider the tool
+can use — the ATS boards it fetches company by company, the aggregators it
+searches by role — with what each brought in, and for the ones that are off,
+why: a missing free API key otherwise looks identical to a source with no jobs).
+Clicking a live card filters the list to it.
+
 Filters are one thin row above the list: search, Fresh ≤30d (ON by default),
 Stage, Type, Category, and More (Level, Experience, Posted, Salary, State,
 Source, Company). All dropdowns are searchable multi-selects; OR within a

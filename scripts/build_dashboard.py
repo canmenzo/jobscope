@@ -45,6 +45,32 @@ SOURCE_NAME = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
                # not in the catalog, so filtering on them shows you the roles a
                # curated list of tech boards can never surface.
                "muse": "The Muse", "adzuna": "Adzuna", "usajobs": "USAJOBS"}
+
+# What each provider actually is, in the reader's terms — the source sheet is
+# useless as a bare list of vendor names. Each line says what it gives you and
+# what it cannot, because those limits are visible in the data (a SmartRecruiters
+# role with no salary or years is missing text, not a bad match).
+SOURCE_BLURB = {
+    "greenhouse": "The ATS most funded tech companies run on. Full postings with "
+                  "descriptions, one named company board per fetch.",
+    "lever": "Same shape as Greenhouse — a named company board per fetch, "
+             "descriptions included.",
+    "ashby": "Newer ATS, popular with startups. Clean postings that state "
+             "employment type and remote status.",
+    "smartrecruiters": "Enterprise ATS. Its listing endpoint carries no description, "
+                       "so years, salary and sponsorship cannot be read from these.",
+    "recruitee": "Smaller, European-leaning ATS. Few US tech boards; kept for coverage.",
+    "workday": "Runs the careers site of most large enterprises. Descriptions take a "
+               "second request, so they are fetched only for roles that already pass "
+               "the title filter.",
+    "muse": "Public feed, no key needed. ~400k US postings from employers no curated "
+            "catalog would list. Its own category tags are unreliable, so we pull wide "
+            "and filter here.",
+    "adzuna": "A true aggregator with full-text search — the strongest lever for "
+              "ordinary, non-famous employers. Descriptions arrive as short teasers.",
+    "usajobs": "Federal postings, full text and real published pay bands. A lot of "
+               "genuinely mid-level cyber work.",
+}
 LEVEL_ORDER = ["intern", "junior", "associate", "entry", "senior", "lead",
                "staff", "principal", "manager", "director", "vp", "head", "none"]
 
@@ -401,6 +427,49 @@ def company_data(raw, jobs):
     return out
 
 
+def source_data(raw, jobs, declared):
+    """Every provider the run could pull from, for the Sources sheet.
+
+    Board sources are counted in company boards; broad sources discover the
+    employer themselves, so the same number means "employers seen". Sources that
+    were switched off are kept with the reason — "no roles from Adzuna" and
+    "Adzuna never ran" look identical otherwise, and only one of them is
+    something you can fix.
+    """
+    agg = {}
+    for c in raw:
+        a = agg.setdefault(c["source"], {"b": 0, "f": 0, "p": 0})
+        a["b"] += 1
+        a["p"] += c.get("postings") or 0
+        if not c.get("ok"):
+            a["f"] += 1
+    hits, emp = {}, {}
+    for j in jobs:
+        hits[j["_src"]] = hits.get(j["_src"], 0) + 1
+        emp.setdefault(j["_src"], set()).add(j["comp"])
+
+    # Runs written before the run file carried a source list still have to
+    # render: fall back to whatever actually turned up in the statuses.
+    def stub(key):
+        return {"key": key, "name": SOURCE_NAME.get(key, key), "kind": "board",
+                "url": "", "on": True, "why": ""}
+
+    known = list(declared or [])
+    known += [stub(k) for k in agg if k not in {d["key"] for d in known}]
+
+    out = []
+    for d in known:
+        k = d["key"]
+        a = agg.get(k, {"b": 0, "f": 0, "p": 0})
+        out.append({"k": k, "n": d.get("name") or SOURCE_NAME.get(k, k),
+                    "kind": d.get("kind", "board"), "u": d.get("url", ""),
+                    "on": bool(d.get("on", True)), "why": d.get("why", ""),
+                    "d": SOURCE_BLURB.get(k, ""), "b": a["b"], "f": a["f"],
+                    "p": a["p"], "m": hits.get(k, 0), "e": len(emp.get(k, ()))})
+    out.sort(key=lambda s: (-s["m"], not s["on"], s["n"].lower()))
+    return out
+
+
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -434,6 +503,11 @@ PAGE = """<!doctype html>
             data-tip="Distinct companies across those roles. <b>Click to see every company
             searched</b> — how many roles each one matched, and a link to its careers page.">
         <b>__COMPANIES__</b> companies</span>
+      <span class="kbtn" id="kSources" role="button" tabindex="0"
+            data-tip="Job boards and aggregators these postings were pulled from, out of
+            every provider this tool can use. <b>Click to see all of them</b> — what each
+            one is, what it brought in, and which are switched off and why.">
+        <b id="kSrcOn">__SOURCES_ON__</b><i>/</i><b class="tot">__SOURCES__</b> sources</span>
       <span data-tip="Roles you have moved onto the board (Will apply and beyond)"><b id="kTracked">0</b> tracked</span>
       <span class="warn" data-tip="<b>Possible ghost jobs.</b> The req has stayed open unusually long, or the same title keeps getting reposted under a new id. Often an evergreen pipeline rather than a live opening.">
         <b>__GHOSTS__</b> ghosts</span>
@@ -519,6 +593,17 @@ __CLOSED__
   </div>
 </div>
 
+<div class="ov hidden" id="srcOv">
+  <div class="ovbox" role="dialog" aria-label="Sources">
+    <div class="ovhead">
+      <h2>Sources</h2>
+      <span class="ovsub" id="srcSub"></span>
+      <button class="ovx" id="srcX" data-tip="Close (Esc)">&times;</button>
+    </div>
+    <div class="ovbody" id="srcBody"></div>
+  </div>
+</div>
+
 <div class="tip hidden" id="tip"></div>
 <script>__JS__</script>
 </body></html>
@@ -573,9 +658,12 @@ def build(date=None, do_open=True):
                          "salary": j.get("salary") or "", "score": j["score"]}
                for j in jobs}
 
+    sources = source_data(data["companies"], jobs, data.get("sources"))
+
     js = (JS
           .replace("__JOBS__", json.dumps(jobs_js))
           .replace("__COMPANY_DATA__", json.dumps(company_data(data["companies"], jobs)))
+          .replace("__SOURCE_DATA__", json.dumps(sources))
           .replace("__STAGES__", json.dumps(STAGES))
           .replace("__BOARD_STAGES__", json.dumps(BOARD_STAGES))
           .replace("__CLOSED_STAGES__", json.dumps(CLOSED_STAGES))
@@ -596,6 +684,8 @@ def build(date=None, do_open=True):
             .replace("__CLOSED__", build_closed())
             .replace("__JOBS__", str(len(jobs)))
             .replace("__COMPANIES__", str(len({j["comp"] for j in jobs})))
+            .replace("__SOURCES_ON__", str(sum(1 for s in sources if s["m"])))
+            .replace("__SOURCES__", str(len(sources)))
             .replace("__GHOSTS__", str(ghosts))
             .replace("__JS__", js)
             .replace("__BUILT__", dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
