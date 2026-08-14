@@ -675,6 +675,22 @@ function passes(row, skip) {
   return true;
 }
 
+// Roles that are remote anywhere in the US belong to no state, so picking one
+// throws them all away — and they are the ones you can work from that state.
+// The menu pins them to the top, but a filter that quietly halves the list has
+// to say so out loud the first time it happens.
+const ANY_STATE = 'any';
+let stateNudged = false;
+function nudgeState() {
+  if (stateNudged || !facets.state.size || facets.state.has(ANY_STATE)) return;
+  const n = rows.filter(r => vals(r, 'state').includes(ANY_STATE)
+                             && passes(r, 'state')).length;
+  if (!n) return;
+  stateNudged = true;
+  toast(n + ' remote (anywhere US) roles sit outside every state \\u2014 '
+        + 'tick "Remote / US" too to keep them', null);
+}
+
 /* -------------------------------------------------------------- dropdowns */
 
 function optionsFor(field) {
@@ -745,6 +761,7 @@ function wireDropdown(dd) {
       const f = cb.closest('.fddopt').dataset.f;
       cb.checked ? facets[f].add(cb.value) : facets[f].delete(cb.value);
       render(); renderMenu(dd, single);
+      if (f === 'state') nudgeState();
     });
     m.querySelector('.fdd-all').addEventListener('click', () => {
       (single ? [single] : fields).forEach(f =>

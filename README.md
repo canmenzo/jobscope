@@ -129,10 +129,16 @@ A dense **list** on the left and a drag-and-drop **kanban** on the right.
   exactly what you come back to apply to. Clicking anywhere else on the card
   opens an inline **note**; the card shows a ✎ when it has one. The date you first move something to Applied is recorded.
 - **Filters** — a single thin row above the list: search (`/` focuses it),
-  **Fresh ≤30d** (on by default), Stage, Type, Category, and **More** for
-  Level, Experience, Posted, Salary, State, Source and Company. Every dropdown
-  is searchable and multi-select, with counts that account for the other active
-  filters. OR within a group, AND across groups.
+  **Fresh ≤30d** (on by default), Stage, Type, Category, State, and **More** for
+  Level, Experience, Posted, Salary, Source, Company and Sponsorship. Every
+  dropdown is searchable and multi-select, with counts that account for the other
+  active filters. OR within a group, AND across groups.
+- **State** is the location question Type can't answer. A role that is remote
+  *anywhere* in the US is tied to no state at all, so it would vanish the moment
+  you picked one — those sit at the top of the menu as **Remote / US**, the same
+  words the Location column uses, and picking a state without them says so in a
+  toast. Tick your state and Remote / US together for "everything I could work
+  from here". A role posted in several cities answers to each of their states.
 - Filters and the active tab persist to the URL hash and `localStorage`, so a
   reload — or the next run's dashboard — returns to the same view. Copy the URL
   to bookmark a slice.
