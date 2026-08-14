@@ -24,7 +24,7 @@ Trigger phrases: "run my job hunt", "do my job search", "find me tech jobs".
 Setup phrases: "set up my job hunt", "reconfigure my job search".
 
 ## Step 0 — environment (first run only)
-From the skill root (`C:\Users\mehme\.claude\skills\job-hunt`):
+From the skill root (the directory this SKILL.md sits in):
 ```
 pip install -r requirements.txt
 ```
@@ -47,7 +47,8 @@ onboarding BEFORE searching. You drive this conversationally:
      surfaced and prunable in the dashboard.
 3. Write `config/config.yaml` (see `config/config.example.yaml` for the schema):
    `country: US`, `sub_sectors: [...]`, `titles: [...]`, `companies: all` (or an
-   explicit `[{source, slug}]` list), `min_score: 40`.
+   explicit `[{source, slug}]` list), `min_score: 55` (the code's default and
+   what the example config and README both document).
 4. Confirm the choices back to the user in one line.
 5. **Profile (drives the fit half of the score).** Ask for the path to their
    resume, read it, and extract: total years, current/most recent title, tools
