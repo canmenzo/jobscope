@@ -377,7 +377,6 @@ def main():
                 "sponsorship": j.get("sponsorship", ""),
                 "relevance": j.get("relevance", j["score"]),
                 "fit": j.get("fit"), "fit_reasons": j.get("fit_reasons", []),
-                "fit_confidence": j.get("fit_confidence"),
                 "first_seen": j.get("first_seen", ""),
                 "open_days": j.get("open_days", 0),
                 "reposted": j.get("reposted", 0),
