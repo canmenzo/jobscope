@@ -56,9 +56,9 @@ onboarding BEFORE searching. You drive this conversationally:
    left out:
      - **target base salary** (a range is fine; take the midpoint) — without it
        the pay component is skipped and $250K senior reqs keep scoring high;
-     - **target levels** — beware vendor ladders, an MDR "Principal" at 2.5
-       years is not a product company's Principal, so confirm rather than
-       reading the title literally;
+     - **target levels** — beware vendor ladders: at a services or MDR shop a
+       "Principal" can be a few years in, which is not what a product company
+       means by it, so confirm rather than reading the current title literally;
      - remote / hybrid / on-site preference;
      - **work authorization** — ask whether they need visa sponsorship
        (F-1/OPT, H-1B, TN). If yes, set `needs_sponsorship: true`; postings

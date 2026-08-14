@@ -266,8 +266,8 @@ Two rules stop fit from flattering a posting:
 **Missing data scores zero.** About half of all postings state no years and no
 salary. An earlier version handed out 72% of the experience weight and 70% of
 the pay weight for saying nothing, so the least informative listings floated to
-the top — a customer-facing "Sr Forward Deployed Engineer" with no stated bar
-scored 90 to a 2.5-year analyst. A later version shrank the score toward a
+the top — a senior customer-facing engineering req with no stated bar could
+score 90 to someone a few years in. A later version shrank the score toward a
 neutral 50 instead, which still quietly *lifted* a weak posting and needed a
 dashed chip in the list to warn about it. Now what a posting doesn't state
 simply earns nothing, exactly like a bad answer, and the reasons name the
