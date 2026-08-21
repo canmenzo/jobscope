@@ -1,184 +1,208 @@
-# job-hunt
+# JobScope
 
-[![CI](https://github.com/canmenzo/jobscope/actions/workflows/ci.yml/badge.svg)](https://github.com/canmenzo/jobscope/actions/workflows/ci.yml)
+**A job search that runs itself, inside Claude Code.**
 
-A Claude Code skill that runs a **USA-only, tech-only** job search end to end.
-It pulls live postings from legal, official JSON APIs — the ATS boards
-(Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workday) plus role-based
-job-search APIs (The Muse, Adzuna, USAJOBS) that reach employers no curated
-catalog contains — filters them to USA tech roles you actually asked for, scores
-each one on **how good it is for you**, and opens a browsable dashboard with a
-drag-and-drop pipeline board. No LinkedIn/Indeed scraping.
+You tell it once what kind of tech job you want and hand it your resume. After
+that, you say *"run my job hunt"* and about ninety seconds later a dashboard
+opens in your browser with fresh openings — sorted by how good each one is
+**for you**, not just how well the words match.
 
-> **You review and apply to everything yourself. This skill never auto-applies,
-> and it does not write resumes or cover letters.**
+It reads job postings straight from company career pages and public job APIs.
+No LinkedIn, no Indeed, no scraping, no signup, no spam.
 
-## Install
+> **It never applies to anything for you, and it does not write resumes or
+> cover letters.** It finds the jobs and keeps them organized. Applying is
+> yours.
 
-In Claude Code:
+![The board](docs/dashboard.png)
+
+---
+
+## Step 1 — Install it
+
+You need [Claude Code](https://claude.com/claude-code) and
+[Python 3.11 or newer](https://www.python.org/downloads/). Both are free.
+
+Open Claude Code and type these two lines:
 
 ```
 /plugin marketplace add canmenzo/jobscope
 /plugin install jobscope@jobscope
 ```
 
-Then install the two Python dependencies (3.11+) and restart Claude Code:
+Then install the two things it needs to talk to job boards. In a normal
+terminal (not Claude Code):
 
-```bash
+```
 pip install requests pyyaml
 ```
 
-<details>
-<summary>Manual install without the plugin system</summary>
+Restart Claude Code and you're done installing.
 
-Clone into your skills directory — the folder **must** be named `job-hunt`:
+<details>
+<summary>Prefer not to use the plugin system? Install it manually.</summary>
+
+Clone it into your skills folder. The folder **must** be named `job-hunt`:
 
 ```bash
 git clone https://github.com/canmenzo/jobscope.git ~/.claude/skills/job-hunt
-# Windows: git clone https://github.com/canmenzo/jobscope.git "$env:USERPROFILE\.claude\skills\job-hunt"
 cd ~/.claude/skills/job-hunt && pip install -r requirements.txt
+```
+
+On Windows PowerShell:
+
+```powershell
+git clone https://github.com/canmenzo/jobscope.git "$env:USERPROFILE\.claude\skills\job-hunt"
 ```
 </details>
 
-## Set it up
+---
 
-Say **"set up my job hunt"**. Claude asks for:
+## Step 2 — Set it up
 
-- **sub-sectors** (cybersecurity, SWE, data/ML, devops, IT, product, QA),
-  **target titles**, and **companies** — `all` is the sane default, since boards
-  that return nothing are surfaced in the dashboard and easy to prune later;
-- your **resume**, which it reads for years, tools and certifications, plus the
-  four things a resume cannot tell it: target salary, target levels, remote
-  preference, and whether you need visa sponsorship.
+In Claude Code, say:
 
-That writes `config/config.yaml` and `config/profile.yaml`. Both are git-ignored,
-along with your pipeline and every run. The profile is optional — without it the
-score is relevance only.
+> **set up my job hunt**
 
-## Run it
+Claude will ask you a handful of questions. Answer them however you like —
+plain English is fine:
 
-Say **"run my job hunt"**, or drive the pipeline directly:
+- **What kind of tech work?** Cybersecurity, software engineering, data/ML,
+  devops/cloud, IT, product/design, or QA. Pick as many as you want.
+- **Which job titles?** It shows you a list based on your answer above, and you
+  can type in any others you care about.
+- **Which companies?** Just say **all**. It searches around 250 company boards,
+  and you can hide the useless ones later from the dashboard.
+- **Your resume.** Give it the file path and it reads out your years of
+  experience, your tools, and your certs by itself.
+- **Four things a resume can't tell it:** the salary you're aiming for, the
+  levels you want (junior? senior? staff?), whether you want remote, and
+  whether you need visa sponsorship.
 
+That last group matters more than it sounds. Skip the salary and it will happily
+recommend you $250K principal roles. Skip the resume entirely and it can still
+find jobs, but it can only tell you *"this matches what you asked for"* — not
+*"you could actually get this one."*
+
+Your answers are saved on your own machine. Nothing is uploaded anywhere.
+
+---
+
+## Step 3 — Run it
+
+Say:
+
+> **run my job hunt**
+
+It checks every board, throws out anything that isn't a US tech role you asked
+for, scores what's left, and opens the dashboard in your browser. Takes about a
+minute and a half.
+
+**On Windows**, you can skip Claude Code entirely once you're set up. Run this
+once:
+
+```powershell
+launcher\install-shortcut.ps1
 ```
-python scripts/job_hunt.py                 # full run (--limit, --pick, --min-score, --new-only)
-python scripts/build_dashboard.py          # build + open the web app (--no-open, or a date)
-```
 
-A full sweep — ~250 boards, ~25k postings pulled, ~600 kept — takes about 90
-seconds. On Windows, `launcher\install-shortcut.ps1` adds two taskbar-pinnable
-shortcuts: one runs a fresh hunt, one just reopens the last result.
+That gives you two shortcuts you can pin to the taskbar — one runs a fresh
+hunt, one just reopens your last results.
 
-```mermaid
-flowchart LR
-  A[config.yaml<br/>taxonomy.yaml<br/>companies_catalog.yaml] --> B
-  B[fetch.py<br/>6 ATS + 3 query APIs, 10 threads] --> C
-  C[filter.py<br/>USA · tech · no-clearance gate] --> D
-  D[score.py + fit.py<br/>relevance · decay · reachability] --> E
-  E[job_hunt.py] --> F[(runs/DATE/_run.json)] --> G[build_dashboard.py] --> H[(index.html)]
-```
+---
 
-Each board is fetched in its own thread with its own try/except, so one dead
-board never kills a run.
+## Using the dashboard
 
-## The dashboard
+The left side is your **triage queue**: everything it found, best first. The
+right side is a **pipeline board** — drag a job into Applied, Screening,
+Interview, or Offer as things move. Once you drag a job, it leaves the queue,
+so the queue only ever shows what you haven't dealt with yet.
 
-![The board](docs/dashboard.png)
+Everything saves in your browser. Close the tab, come back tomorrow, it's all
+still there.
 
-Vanilla JS in one self-contained file. A dense sortable **list** on the left, a
-drag-and-drop **kanban** on the right (Applied · Screening · Interview · Offer,
-plus a closed strip). The list is a triage queue, so a role leaves it once you
-track it; every move raises an Undo toast, and stage history is timestamped into
-`localStorage`, seeded from `applications.json` if present.
+A few things worth knowing:
 
-- **Filters** — search, Fresh ≤30d (on by default), Stage, Type, Category, State
-  and More (Level, Experience, Posted, Salary, Source, Company, Sponsorship).
-  Searchable multi-selects; OR within a group, AND across groups, persisted to
-  the URL hash.
-- **State** answers what Type can't. A role remote *anywhere* in the US is tied
-  to no state, so it sits at the top of the menu as **Remote / US** rather than
-  vanishing the moment you pick one.
-- **Coverage sheets** — the *companies* and *sources* stats open a list of every
-  board searched and every provider available, including the ones that came back
-  empty or are switched off, with the reason. A source waiting on a free API key
-  looks exactly like a source with no jobs otherwise.
-- **GHOST** tags flag reqs left open unusually long or relisted under a new id;
-  **NO SPONSOR** / **SPONSORS** flag what the description says about visas; the
-  same role posted to five cities is merged into one row.
+- **Filters** across the top: search, freshness (last 30 days is on by
+  default), stage, remote/hybrid/onsite, category, state, plus a **More** menu
+  for level, experience, salary, and sponsorship.
+- **Every score has a reason.** Hover the number on any job and it tells you
+  exactly what pulled it up or down.
+- **Tags** flag things worth catching early: `NO SPONSOR` and `SPONSORS` for
+  visa situations, and `GHOST` for postings that have sat open suspiciously
+  long or were quietly relisted under a new ID.
+- **The Flow tab** shows where your applications actually die — how many
+  reached a screen, how many an interview — and exports the lot to CSV.
+
+*(The screenshots here use fake data. Yours starts empty.)*
 
 ![The flow view](docs/pipeline.png)
 
-The Flow tab is a conversion strip over a Sankey of how roles actually moved,
-with drop-offs branching where they happened. Pipeline and Roles **CSV exports**
-sit in its header. *(Both screenshots use sample data — a fresh install starts
-empty.)*
+---
 
-## The score (0-100)
+## What the score means
 
-**Relevance** — is this the kind of job you asked for? A selected title phrase in
-the job title scores 72-100 and scales with coverage, so a clean "Detection
-Engineer" outranks "Staff Distributed Systems Detection Engineer, Platform"; a
-sub-sector keyword in the title scores 55-63; a description-only match scores 42.
-Counting more keywords never inflates it. Opt-in penalties then decay stale
-postings and mark down levels and years above your bar.
+Every job gets one number from 0 to 100 that answers two questions at once:
+**is this the job you asked for**, and **could you realistically get it?**
 
-**Fit** — could you realistically get it? Relevance alone recommends jobs you
-cannot get: a Staff Product Security Engineer wanting 8 years scores 95 to a
-second-year analyst, because the title matches.
+The second half is why it wanted your resume. A Staff Product Security Engineer
+role asking for eight years is a perfect title match for a second-year analyst
+and a complete waste of their afternoon.
 
-| Component | Weight | What it reads |
-|---|---|---|
-| Experience | 40 | Years the posting asks for vs yours |
-| Seniority | 25 | The title's level vs the levels you target |
-| Skills | 25 | How much of your toolkit the posting actually names |
-| Pay band | 10 | A listed floor far above your target signals a senior role |
+The color is the shortcut: **green** you clear comfortably, **amber** is a
+stretch, **red** is a reach. Hover any score to see the reasoning. By default
+it hides anything below **55**.
 
-Two rules keep fit honest. **Missing data scores zero:** about half of all
-postings state no years and no salary, and rewarding that silence floated the
-least informative listings to the top, so what a posting doesn't state now earns
-nothing and the reasons name the deduction — the weights sum to 100, so no pay
-range is −10 and no readable description is −25. Only an unstated years bar is
-still inferred, from what the title implies. **Common skills are not evidence:**
-`python`, `git` and `docker` appear in almost every posting, so each run weights
-your skills by how rare they are in the postings it pulled, with full marks
-pegged to the top decile of that run's own matches.
+👉 **[How it works, for nerds](docs/how-it-works.md)** — the scoring math, the
+data sources, the pipeline, and how to hack on it.
 
-The displayed score blends both, weighted toward fit, and the chip is tinted by
-reachability — green you clear comfortably, amber is a stretch, red is a reach.
-**Hover any score** for what pulled that one down. Default `min_score` is **55**.
+---
 
-## Configure
+## Changing things later
 
-**Companies** live in `config/companies_catalog.yaml`, grouped by ATS. The slug
-is the identifier in that ATS's public URL — `job-boards.greenhouse.io/<slug>`,
-`jobs.lever.co/<slug>`, `jobs.ashbyhq.com/<slug>`,
-`jobs.smartrecruiters.com/<slug>`, `<slug>.recruitee.com`. Workday is
-`tenant:wdN:site`, read off the careers URL, so
-`https://capitalone.wd12.myworkdayjobs.com/Capital_One` becomes
-`capitalone:wd12:Capital_One`. A failing slug never crashes the run, and the
-catalog keeps a commented list of slugs already probed and confirmed dead.
+You never have to edit a config file. Just say what you want in Claude Code:
 
-**Broad sources** search by role instead of by company, which is how the regional
-bank, the hospital system and the 40-person MSP show up at all — a hand-curated
-list of security vendors and AI labs only ever returns security vendors and AI
-labs. Sources with no key are skipped silently:
+| You want to… | Say this |
+|---|---|
+| Change titles, sectors, or your resume details | *"reconfigure my job search"* |
+| See more (or fewer) jobs | *"lower my job hunt min score to 45"* |
+| Watch a specific company | *"add Cloudflare to my job hunt"* |
+| Only see things you haven't seen before | *"run my job hunt, new only"* |
 
-```yaml
-broad_sources:
-  muse: true            # The Muse — no key needed
-  adzuna: false         # free key: https://developer.adzuna.com/
-  usajobs: false        # free key: https://developer.usajobs.gov/apirequest/
+### Getting more jobs
 
-broad_queries:          # defaults to `titles`; plainer phrasing works better
-  - SOC Analyst
-  - Information Security Analyst
-```
+Out of the box it searches those ~250 company career pages plus The Muse, which
+skews heavily toward well-known tech companies. If you want the regional bank,
+the hospital system, and the 40-person shop down the road to show up too, two
+free API keys open that up:
 
-## Development
+- **Adzuna** — [developer.adzuna.com](https://developer.adzuna.com/)
+- **USAJOBS** (federal government) —
+  [developer.usajobs.gov](https://developer.usajobs.gov/apirequest/)
 
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-pytest -q                  # 191 tests
-ruff check scripts tests
-```
+Sign up, paste the keys into Claude Code, and say *"add these to my job hunt."*
+It'll wire them in. Until then those sources are just skipped — and the
+dashboard's **sources** panel shows you exactly which boards ran, which came
+back empty, and which are waiting on a key.
 
-CI runs both on every push against Python 3.11, 3.12 and 3.13.
+---
+
+## If something goes wrong
+
+**"It says NEEDS_SETUP."** You haven't run setup yet. Say *"set up my job
+hunt."*
+
+**"No jobs came back."** Your filters are too tight. Lower the minimum score,
+or turn off the 30-day freshness filter in the dashboard.
+
+**"Some companies show as failed."** Normal. Companies rename and move their
+job boards constantly. One dead board never stops a run — open the
+**companies** panel in the dashboard to see which ones and prune them.
+
+**"pip isn't recognized."** Python isn't installed, or isn't on your PATH.
+Reinstall from [python.org](https://www.python.org/downloads/) and tick *"Add
+Python to PATH"* during setup.
+
+---
+
+MIT licensed. Issues and pull requests welcome at
+[github.com/canmenzo/jobscope](https://github.com/canmenzo/jobscope).
