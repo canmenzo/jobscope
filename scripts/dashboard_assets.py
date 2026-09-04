@@ -413,6 +413,24 @@ button{font-family:inherit}
        background:#0d0a18;border:1px solid var(--neon);border-radius:24px;
        box-shadow:0 0 26px #c026d355,0 12px 34px #000c;animation:pop .18s}
 .toast button{background:0;border:0;color:var(--cyan-ink);font-size:12px;cursor:pointer;font-weight:700}
+.ctx{position:fixed;z-index:96;width:216px;padding:6px;background:#0a0a13;
+     border:1px solid var(--edge-2);border-radius:var(--r-lg);
+     box-shadow:0 18px 44px #000c,0 0 0 1px #c026d322,0 0 30px #c026d31f;
+     animation:pop .13s ease-out}
+.ctxh{font-size:9px;letter-spacing:1.2px;color:var(--ink-4);text-transform:uppercase;
+      padding:7px 7px 3px;font-weight:700}
+.ctxt{font-size:11px;color:var(--ink-3);padding:2px 7px 6px;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctxi{display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:6px;font-size:12.5px;
+      color:var(--ink-2);cursor:pointer;transition:.12s}
+.ctxi:hover{background:#1a0f2b;color:var(--ink)}
+.ctxi.cur,.ctxi.cur:hover{background:#12101c;color:var(--ink);cursor:default}
+.ctxi .aft{margin-left:auto;font-size:10px;color:var(--ink-4)}
+.ctxi .tick{margin-left:auto;font-size:11px;color:var(--neon-ink)}
+.ctxi.danger{color:var(--st-rejected);background:#1c0709}
+.ctxi.danger:hover{background:#2a0a0e;color:#ff8a92}
+.ctxsep{height:1px;background:var(--edge);margin:5px 3px}
+
 .empty-list{padding:40px 20px;text-align:center;color:var(--ink-4);font-size:12.5px}
 
 /* ---------------------------------------------------------------- polish */
@@ -530,6 +548,9 @@ let newOnly = false, freshOnly = true, hideGhosts = false;
 // The forward order of the funnel. Anything not on it (Rejected, No response)
 // is terminal and always appends rather than trimming.
 const FUNNEL = ['none'].concat(BOARD_STAGES, ['accepted']);
+// The two ways out that are not progress. They record WHERE you dropped out,
+// so they append to the path instead of replacing it.
+const EXITS = CLOSED_STAGES.filter(k => k !== 'accepted');
 let sortKey = 'score', sortDir = -1, undoState = null, toastTimer = null;
 
 const stage = id => (APPS[id] || {}).status || 'none';
@@ -591,15 +612,26 @@ function setStage(id, next, record) {
   if (record) {
     const today = new Date().toISOString().slice(0, 10);
     const at = s => FUNNEL.indexOf(s);
+    // Reopening something you closed out is a correction too: drop the exit
+    // from the path first, so a mis-clicked Rejected does not leave the Flow
+    // view drawing Interview -> Rejected -> Interview. What the card was at
+    // BEFORE the exit is the stage the next move is measured against.
+    let from = prev;
+    if (EXITS.includes(prev)) {
+      while (e.history.length && EXITS.includes(e.history[e.history.length - 1].stage))
+        e.history.pop();
+      from = e.history.length ? e.history[e.history.length - 1].stage : 'none';
+      if (from === next) { saveApps(); return; }
+    }
     // Moving BACKWARDS along the funnel is a correction, not progress: trim the
     // stages you undid instead of appending. Otherwise dragging a card out of
     // Screening leaves "reached Screening" in the history forever and the Flow
     // view keeps showing a stage that is now empty.
-    if (at(next) !== -1 && at(prev) !== -1 && at(next) < at(prev)) {
+    if (at(next) !== -1 && at(from) !== -1 && at(next) < at(from)) {
       e.history = e.history.filter(h => at(h.stage) !== -1 && at(h.stage) <= at(next));
       if (next === 'none') e.history = [];
     } else {
-      if (!e.history.length && prev !== 'none') e.history.push({ stage: prev, date: today });
+      if (!e.history.length && from !== 'none') e.history.push({ stage: from, date: today });
       if (next !== 'none') e.history.push({ stage: next, date: today });
     }
     if (next === 'applied' && !e.applied_date) e.applied_date = today;
@@ -614,13 +646,16 @@ function setStage(id, next, record) {
 }
 
 function move(id, next) {
-  const prev = stage(id);
+  // Undo used to pop a single history entry, which only matched a plain
+  // forward move: a backwards move trims several, and reopening a closed card
+  // drops the exit. Snapshot the whole entry and put it back verbatim instead.
+  const before = APPS[id] ? JSON.parse(JSON.stringify(APPS[id])) : null;
   setStage(id, next, true);
-  undoState = { id, prev };
+  undoState = { id, before };
   render();
-  toast(`${jobOf(id).title} \\u2192 ${label(next)}`, () => {
-    setStage(id, undoState.prev, false);
-    const e = APPS[id]; if (e && e.history) e.history.pop();
+  toast(`${jobOf(id).title} \u2192 ${label(next)}`, () => {
+    if (undoState.before) APPS[undoState.id] = undoState.before;
+    else delete APPS[undoState.id];
     saveApps(); render();
   });
 }
@@ -942,6 +977,75 @@ $('.cols').addEventListener('click', e => {
   });
   card.appendChild(n); n.focus();
 });
+
+/* ---------------------------------------------------------- stage menu */
+
+// Right-click a card or a list row to set its stage directly. Dragging to the
+// closed strip works too, but the exits are the reason this exists: a rejection
+// after an interview has to be recorded FROM Interview, because the Flow view
+// draws where each application dropped out. Moving a card to Rejected keeps the
+// whole path it took, so the Sankey branches Interview -> Rejected rather than
+// pretending the role never got past Applied — the menu says so on the item.
+let ctxEl = null;
+const closeCtx = () => { if (ctxEl) { ctxEl.remove(); ctxEl = null; } };
+
+function openCtx(id, x, y) {
+  closeCtx();
+  const cur = stage(id), j = jobOf(id);
+  if (!j) return;
+  // Where an exit would be recorded from: the last real rung on the path, so a
+  // card already sitting in Rejected still shows what it was rejected after.
+  const e = APPS[id] || {}, h = (e.history || []).map(s => s.stage)
+    .filter(s => s !== 'willapply' && !EXITS.includes(s));
+  const from = h.length ? h[h.length - 1] : (FUNNEL.indexOf(cur) > 1 ? cur : '');
+  const showFrom = from && from !== 'applied' ? label(from) : '';
+
+  const item = k => {
+    const isCur = k === cur;
+    const aft = !isCur && EXITS.includes(k) && showFrom
+      ? `<span class="aft">after ${showFrom}</span>` : '';
+    return `<div class="ctxi${isCur ? ' cur' : ''}" data-stage="${k}">`
+      + `<span class="sw" style="background:var(${cvar(k)})"></span>${label(k)}`
+      + (isCur ? '<span class="tick">\u2713</span>' : aft) + '</div>';
+  };
+  const m = document.createElement('div');
+  m.className = 'ctx';
+  m.innerHTML = `<div class="ctxh">Stage</div><div class="ctxt">${j.title}</div>`
+    + BOARD_STAGES.map(item).join('')
+    + '<div class="ctxh">Closed</div>' + CLOSED_STAGES.map(item).join('')
+    + (cur === 'none' ? ''
+       : '<div class="ctxsep"></div><div class="ctxi" data-stage="none">Stop tracking</div>');
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.max(6, Math.min(x, innerWidth - r.width - 8)) + 'px';
+  m.style.top = Math.max(6, Math.min(y, innerHeight - r.height - 8)) + 'px';
+  m.addEventListener('click', ev => {
+    const it = ev.target.closest('.ctxi');
+    if (!it || it.classList.contains('cur')) return;
+    // Stop tracking throws away the note, the dates and the path the role
+    // took, and it is one row under a stage change — ask before doing it.
+    if (it.dataset.stage === 'none' && !it.classList.contains('danger')) {
+      it.classList.add('danger');
+      it.textContent = 'Stop tracking — are you sure?';
+      return;
+    }
+    move(id, it.dataset.stage);
+    closeCtx();
+  });
+  ctxEl = m;
+}
+
+document.addEventListener('contextmenu', e => {
+  const el = e.target.closest('.kc, .row');
+  if (!el || e.target.closest('.knote, input, textarea')) return;
+  e.preventDefault();
+  openCtx(el.dataset.id, e.clientX, e.clientY);
+});
+document.addEventListener('mousedown', e => { if (!e.target.closest('.ctx')) closeCtx(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCtx(); });
+addEventListener('scroll', closeCtx, true);
+addEventListener('resize', closeCtx);
+
 
 /* ----------------------------------------------------------- row actions */
 

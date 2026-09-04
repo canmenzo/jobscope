@@ -575,7 +575,7 @@ __COLUMNS__
         <div class="closed">
           <span class="lab">Closed</span>
 __CLOSED__
-          <span class="hint">drag a card here to close it out</span>
+          <span class="hint">drag a card here, or right-click one to set its stage</span>
         </div>
       </div>
 
