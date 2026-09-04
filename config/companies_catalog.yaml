@@ -95,7 +95,6 @@ greenhouse:
   # verified live 2026-08-10
   - algolia
   - carta
-  - clickhouse
   - descope
   - duolingo
   - endorlabs
@@ -104,7 +103,6 @@ greenhouse:
   - grafanalabs
   - honeycomb
   - launchdarkly
-  - marqeta
   - pinterest
   - riskified
   - roblox
@@ -113,7 +111,6 @@ greenhouse:
   - squarespace
   - starburst
   - tanium
-  - temporaltechnologies
   - toast
   - torq
   - veracode
@@ -169,7 +166,6 @@ lever:
   - matchgroup
   - mistral
   - palantir
-  - plaid
   - ro
   - shieldai
   - spotify
@@ -185,6 +181,10 @@ lever:
   - prosper
 
 ashby:
+  # moved off Greenhouse/Lever, re-slugged 2026-09-03
+  - clickhouse
+  - plaid
+  - temporal
   - 1password
   - baseten
   - drata

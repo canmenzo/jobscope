@@ -24,6 +24,21 @@ def test_milwaukee_is_not_the_uk():
     assert states == ["WI"]
 
 
+@pytest.mark.parametrize("loc,expect_us", [
+    ("Remote - MX", False),
+    ("Remote - BR", False),
+    ("Dublin, IE", False),
+    # codes that are US states first: these must stay US.
+    ("Remote - CA", True),
+    ("Remote - IN", True),
+    ("Remote - DE", True),
+    ("Remote - PA", True),
+])
+def test_bare_country_code_is_not_unspecified(loc, expect_us):
+    is_us, _, _ = classify_location(loc, "")
+    assert is_us is expect_us
+
+
 def test_multi_location_with_one_us_city_counts_as_us():
     is_us, _, states = classify_location("New York, NY; London", "")
     assert is_us is True
