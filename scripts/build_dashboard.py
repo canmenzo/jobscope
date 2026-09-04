@@ -429,7 +429,9 @@ def build_closed():
     for k in CLOSED_STAGES:
         lab = dict((s[0], s[1]) for s in STAGES)[k]
         var = dict((s[0], s[2]) for s in STAGES)[k]
-        out.append(f'<div class="cl" id="dz-{k}"><span class="sw" style="background:var({var})">'
+        out.append(f'<div class="cl" id="dz-{k}" data-stage="{k}" '
+                   f'data-tip="Click to see the roles that ended here">'
+                   f'<span class="sw" style="background:var({var})">'
                    f'</span><b id="cn-{k}">0</b> {esc(lab)}</div>')
     return "\n".join(out)
 
@@ -573,7 +575,6 @@ __ROWS__
 __COLUMNS__
         </div>
         <div class="closed">
-          <span class="lab">Closed</span>
 __CLOSED__
           <span class="hint">drag a card here, or right-click one to set its stage</span>
         </div>

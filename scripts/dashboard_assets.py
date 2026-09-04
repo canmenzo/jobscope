@@ -291,14 +291,40 @@ button{font-family:inherit}
 
 .closed{flex-shrink:0;display:flex;align-items:center;gap:7px;padding:7px 11px;border-radius:var(--r-lg);
         background:var(--panel);border:1px dashed var(--edge-2);font-size:10.5px;color:var(--ink-3)}
-.closed .lab{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;
-             color:var(--ink-4);margin-right:2px}
 .cl{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;background:var(--field);
     border:1px solid var(--edge-2);cursor:pointer;transition:.18s;white-space:nowrap}
 .cl:hover{border-color:var(--neon);box-shadow:0 0 14px #c026d344}
 .cl.over{border-color:var(--neon);background:#2a0733;box-shadow:0 0 18px #c026d366}
 .cl b{font-family:var(--num);color:var(--ink)}
 .cl .sw{border-radius:50%}
+/* Accepted is the one outcome you hit once. Keeping a permanent 0 chip next to
+   the two you use daily is noise, so it only appears once something is in it —
+   the right-click menu is how a card gets there. */
+.cl.empty{display:none}
+.cl.open{border-color:var(--neon);background:#2a0733;box-shadow:0 0 18px #c026d366}
+
+/* The roles that ended in one closed stage, as a popover off its chip. The
+   kanban deliberately does not give these columns, but "who rejected me" is
+   still a list you want to read. */
+.clpop{position:fixed;z-index:78;width:340px;max-height:min(420px,60vh);display:flex;
+       flex-direction:column;background:#0a0a13;border:1px solid var(--edge-2);
+       border-radius:var(--r-lg);box-shadow:0 22px 54px #000d,0 0 0 1px #c026d322,0 0 34px #c026d31f;
+       animation:menuIn .17s var(--spring) both}
+.clph{display:flex;align-items:center;gap:7px;padding:9px 11px;flex-shrink:0;
+      border-bottom:1px solid var(--edge);font-size:11px;letter-spacing:1.2px;
+      text-transform:uppercase;font-weight:700;color:var(--ink-2)}
+.clph .n{margin-left:auto;font-family:var(--num);font-size:11px;color:var(--ink-4);
+         letter-spacing:0;text-transform:none}
+.clpb{overflow-y:auto;padding:5px}
+.clr{display:block;padding:7px 8px;border-radius:6px;text-decoration:none;transition:.12s}
+.clr:hover{background:#1a0f2b}
+.clrt{font-size:12.5px;color:var(--ink);line-height:1.35}
+.clr:hover .clrt{color:var(--neon-ink)}
+.clrm{font-size:10.5px;color:var(--ink-4);margin-top:3px;font-family:var(--num);
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clrm .aft{color:var(--ink-3)}
+.clpf{padding:7px 11px;flex-shrink:0;border-top:1px solid var(--edge);
+      font-size:10px;color:var(--ink-4)}
 .hint{margin-left:auto;color:var(--ink-4);font-size:10px;white-space:nowrap;overflow:hidden}
 .listpane.w2 ~ .right .hint,.listpane.w3 ~ .right .hint{display:none}
 
@@ -890,9 +916,85 @@ function renderBoard() {
   const lp = document.getElementById('listpane');
   [1, 2, 3].forEach(n => lp.classList.toggle('w' + n, railed === n));
   CLOSED_STAGES.forEach(k => {
-    bump(document.getElementById('cn-' + k), trackedIds(k).length);
+    const n = trackedIds(k).length;
+    bump(document.getElementById('cn-' + k), n);
+    // Accepted only earns its chip once you have one. Rejected and No response
+    // stay put at 0 — those two are the drop targets you reach for.
+    document.getElementById('dz-' + k).classList.toggle('empty', k === 'accepted' && !n);
   });
+  if (clStage) drawClosed();
 }
+
+/* ------------------------------------------------- closed-stage popover */
+
+// The closed strip is counts only, which is the right size for the board but
+// gives you nowhere to answer "which ones rejected me". Clicking a chip opens
+// the list behind it, each row showing the stage it dropped out of — the same
+// thing the Flow view draws, read one role at a time.
+let clStage = null, clPop = null;
+
+function closeClosed() {
+  clStage = null;
+  if (clPop) { clPop.remove(); clPop = null; }
+  $$('.cl.open').forEach(e => e.classList.remove('open'));
+}
+
+function drawClosed() {
+  const k = clStage, chip = document.getElementById('dz-' + k);
+  const ids = trackedIds(k).sort((a, b) => (dateOf(b) || '').localeCompare(dateOf(a) || ''));
+  if (!chip || !ids.length) { closeClosed(); return; }
+  if (!clPop) { clPop = document.createElement('div'); clPop.className = 'clpop';
+                document.body.appendChild(clPop); }
+  $$('.cl.open').forEach(e => e.classList.remove('open'));
+  chip.classList.add('open');
+
+  clPop.innerHTML = `<div class="clph"><span class="sw" style="background:var(${cvar(k)});`
+    + `border-radius:50%"></span>${label(k)}<span class="n">${ids.length}</span></div>`
+    + '<div class="clpb">' + ids.map(id => {
+        const j = jobOf(id), from = exitFrom(id), d = dateOf(id);
+        const meta = [from ? `<span class="aft">after ${label(from)}</span>` : '', j.comp, d]
+          .filter(Boolean).join(' · ');
+        const t = j.url ? `<a class="clr" href="${j.url}" target="_blank" rel="noopener"`
+                        : '<div class="clr"';
+        return `${t} data-id="${id}"><div class="clrt">${j.title}</div>`
+          + `<div class="clrm">${meta}</div>${j.url ? '</a>' : '</div>'}`;
+      }).join('') + '</div>'
+    + '<div class="clpf">Right-click a row to put it back in the pipeline</div>';
+
+  placeClosed();
+}
+
+// Anchored to the chip, which sits in the board frame and does not move when
+// the role list or a kanban column scrolls. Closing on scroll (what the stage
+// menu does) would tear the popover away the moment you scrolled the list
+// behind it, so reposition instead.
+function placeClosed() {
+  const chip = document.getElementById('dz-' + clStage);
+  if (!clPop || !chip) return;
+  const r = chip.getBoundingClientRect(), h = clPop.offsetHeight;
+  clPop.style.left = Math.max(6, Math.min(r.left, innerWidth - clPop.offsetWidth - 8)) + 'px';
+  clPop.style.top = (r.top - h - 8 > 6 ? r.top - h - 8
+                                       : Math.min(r.bottom + 8, innerHeight - h - 8)) + 'px';
+}
+
+// Where the role dropped out: the last real rung before the exit.
+function exitFrom(id) {
+  const h = ((APPS[id] || {}).history || []).map(x => x.stage)
+    .filter(x => x !== 'willapply' && !EXITS.includes(x) && x !== 'accepted');
+  return h.length > 1 ? h[h.length - 1] : '';
+}
+const dateOf = id => {
+  const h = (APPS[id] || {}).history || [];
+  return h.length ? h[h.length - 1].date || '' : '';
+};
+
+$('.closed').addEventListener('click', e => {
+  const chip = e.target.closest('.cl'); if (!chip) return;
+  const k = chip.dataset.stage;
+  if (clStage === k) { closeClosed(); return; }
+  if (!trackedIds(k).length) { toast(`Nothing in ${label(k)} yet`); return; }
+  clStage = k; drawClosed();
+});
 
 /* ------------------------------------------------------------ drag & drop */
 
@@ -1036,15 +1138,23 @@ function openCtx(id, x, y) {
 }
 
 document.addEventListener('contextmenu', e => {
-  const el = e.target.closest('.kc, .row');
+  const el = e.target.closest('.kc, .row, .clr');
   if (!el || e.target.closest('.knote, input, textarea')) return;
   e.preventDefault();
   openCtx(el.dataset.id, e.clientX, e.clientY);
 });
-document.addEventListener('mousedown', e => { if (!e.target.closest('.ctx')) closeCtx(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCtx(); });
-addEventListener('scroll', closeCtx, true);
-addEventListener('resize', closeCtx);
+document.addEventListener('mousedown', e => {
+  if (!e.target.closest('.ctx')) closeCtx();
+  // The stage menu is opened FROM the popover, so a click inside either one
+  // must leave the popover standing.
+  if (!e.target.closest('.clpop, .ctx, .cl')) closeClosed();
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (ctxEl) closeCtx(); else closeClosed();
+});
+addEventListener('scroll', () => { closeCtx(); if (clStage) placeClosed(); }, true);
+addEventListener('resize', () => { closeCtx(); if (clStage) placeClosed(); });
 
 
 /* ----------------------------------------------------------- row actions */
