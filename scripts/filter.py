@@ -43,6 +43,18 @@ NON_US_MARKERS = [
     "taipei", "jakarta", "bangkok", "hanoi", "manila", "tel aviv",
     "bogota", "lima", "santiago", "guadalajara", "monterrey",
 ]
+# Bare ISO country codes ("Remote - MX", "Remote - BR") name no country and no
+# state, so the marker lists saw nothing either way and the role was kept as
+# "unspecified". Only codes that are NOT also US state abbreviations belong
+# here: CA/IN/DE/CO/IL/PA and friends are states far more often than countries.
+NON_US_CODES = {
+    "MX", "GB", "UK", "FR", "ES", "PT", "NL", "BE", "LU", "CH", "AT", "CZ",
+    "PL", "RO", "BG", "GR", "HU", "HR", "RS", "UA", "TR", "AE", "SA", "EG",
+    "KE", "NG", "ZA", "NZ", "AU", "JP", "KR", "CN", "TW", "HK", "SG", "MY",
+    "TH", "VN", "PH", "BR", "CL", "PE", "UY", "CR", "SE", "NO", "DK", "FI",
+    "IS", "EE", "LV", "LT", "SK", "SI", "IE", "IT", "RU", "QA", "KW", "PK",
+    "BD", "LK", "NP", "AM", "GE", "KZ", "DZ", "MA",
+}
 US_MARKERS = [
     "united states", "u.s.", "usa", "us-remote", "remote - us", "remote, us",
     "americas", "north america", "remote us", "us only", "anywhere in the us",
@@ -152,7 +164,9 @@ def classify_location(loc, country):
     if is_us is None:
         if states or _has(l, US_MARKERS):
             is_us = True
-        elif _NON_US_RE.search(l):
+        elif _NON_US_RE.search(l) or any(
+            a in NON_US_CODES for a in _ABBR_RE.findall(loc or "")
+        ):
             is_us = False
     return is_us, loc_type, states
 
