@@ -1,6 +1,7 @@
 # 🎯 JobScope
 
 [![tests](https://github.com/canmenzo/jobscope/actions/workflows/ci.yml/badge.svg)](https://github.com/canmenzo/jobscope/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/canmenzo/jobscope)](LICENSE)
 ![python](https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-D97757)
 ![last commit](https://img.shields.io/github/last-commit/canmenzo/jobscope)
@@ -139,4 +140,4 @@ CI runs the same on Python 3.11 to 3.13. The scoring math, data sources and pipe
 
 ### 📄 License
 
-MIT (declared in `.claude-plugin/plugin.json`). Issues and PRs welcome.
+[MIT](LICENSE). Issues and PRs welcome.
