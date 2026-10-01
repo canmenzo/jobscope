@@ -3,7 +3,8 @@
     unless it hits taxonomy.nontech_keep (e.g. "Forward Deployed Solutions
     Engineer", which is an engineering role wearing a sales-sounding name)
   - location is in the USA (or US-remote / unspecified)
-  - does not require an active security clearance
+  - does not require an active security clearance (unless the config says
+    the user holds one: `has_clearance: true`)
   - matches at least one keyword from the user's selected sub-sectors/titles
 
 Returns (kept, dropped) where dropped is a list of (job, reason).
@@ -220,6 +221,7 @@ def build_scope(config, taxonomy):
         "exclude_levels": {str(l).lower() for l in config.get("exclude_levels", []) or []},
         "freshness": config.get("freshness", True),
         "max_yoe": int(config.get("max_yoe") or 0),
+        "has_clearance": bool(config.get("has_clearance")),
     }
 
 
@@ -242,7 +244,7 @@ def filter_jobs(jobs, scope):
             dropped.append((j, reason))
             continue
 
-        if _CLEAR_RE.search(blob):
+        if not scope.get("has_clearance") and _CLEAR_RE.search(blob):
             dropped.append((j, "requires security clearance"))
             continue
 
