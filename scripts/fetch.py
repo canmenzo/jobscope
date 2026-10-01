@@ -3,8 +3,8 @@
 Two kinds of source, because they answer different halves of the problem.
 
 BOARD SOURCES are per-company: you name the employer, you get its whole board.
-  greenhouse, lever, ashby, smartrecruiters, recruitee, workable, rippling,
-  workday
+  greenhouse, lever, ashby, smartrecruiters, recruitee, workday,
+  successfactors, talentbrew, jazzhr
 They give clean, complete, well-described postings — but only from companies
 somebody put in the catalog, which skews heavily toward well-known tech firms.
 
@@ -34,8 +34,10 @@ fetch_all() returns (jobs, statuses):
 """
 import datetime as dt
 import html
+import json
 import re
 import time
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -45,7 +47,9 @@ LEVER = "https://api.lever.co/v0/postings/{slug}?mode=json"
 ASHBY = "https://api.ashbyhq.com/posting-api/job-board/{slug}"
 SMARTRECRUITERS = "https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100&offset={offset}"
 RECRUITEE = "https://{slug}.recruitee.com/api/offers/"
+JAZZHR = "https://app.jazz.co/feeds/export/jobs/{slug}"
 # Workday endpoints are built per-tenant in fetch_workday (tenant:wdN:site).
+# SuccessFactors and TalentBrew slugs are the careers site's own host.
 
 # Broad (query-based) sources — see the module docstring.
 MUSE = "https://www.themuse.com/api/public/jobs"
@@ -76,6 +80,9 @@ SOURCE_INFO = {
     "smartrecruiters": ("SmartRecruiters", "board", "https://www.smartrecruiters.com/"),
     "recruitee": ("Recruitee", "board", "https://recruitee.com/"),
     "workday": ("Workday", "board", "https://www.workday.com/"),
+    "successfactors": ("SuccessFactors", "board", "https://www.sap.com/products/hcm/recruiting-onboarding.html"),
+    "talentbrew": ("TalentBrew", "board", "https://www.radancy.com/"),
+    "jazzhr": ("JazzHR", "board", "https://www.jazzhr.com/"),
     "muse": ("The Muse", "broad", "https://www.themuse.com/developers/api/v2"),
     "adzuna": ("Adzuna", "broad", "https://developer.adzuna.com/"),
     "usajobs": ("USAJOBS", "broad", "https://developer.usajobs.gov/apirequest/"),
@@ -91,6 +98,9 @@ BOARD_URL = {
     "ashby": "https://jobs.ashbyhq.com/{slug}",
     "smartrecruiters": "https://jobs.smartrecruiters.com/{slug}",
     "recruitee": "https://{slug}.recruitee.com/",
+    "successfactors": "https://{slug}/",
+    "talentbrew": "https://{slug}/search-jobs",
+    "jazzhr": "https://{slug}.applytojob.com/apply",
 }
 
 HEADERS = {"User-Agent": "job-hunt-skill/2.0 (personal job search)"}
@@ -104,6 +114,10 @@ RETRY_BACKOFF = 2.0
 WORKDAY_PAGE = 20    # server-side cap; 50 returns HTTP 400
 WORKDAY_MAX_PAGES = 8
 WORKDAY_DEFAULT_TERMS = ("security",)
+SF_PAGE = 25         # SuccessFactors career sites list a fixed 25 per page
+SF_MAX_PAGES = 8
+TALENTBREW_PAGE = 100
+TALENTBREW_MAX_PAGES = 30
 
 # Pretty display names where title-casing the slug isn't enough.
 NAME_OVERRIDES = {
@@ -153,6 +167,13 @@ NAME_OVERRIDES = {
     "endorlabs": "Endor Labs",
     "runzero": "runZero",
     "oso": "Oso",
+    "ngc": "Northrop Grumman",
+    "bah": "Booz Allen Hamilton",
+    "avav": "AeroVironment",          # includes Tomahawk Robotics (acquired)
+    "globalhr": "RTX (Collins Aerospace)",  # one RTX board: Collins, Raytheon, Pratt
+    "careers.l3harris.com/en": "L3Harris",
+    "careers.leonardodrs.com": "Leonardo DRS",
+    "careers.bwxt.com": "BWXT",
 }
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -346,6 +367,7 @@ def fetch_workday(slug, terms=None):
     base = f"https://{tenant}.{wd}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
     jobs, seen = [], set()
     for term in (terms or WORKDAY_DEFAULT_TERMS):
+        total = 0
         for page in range(WORKDAY_MAX_PAGES):
             body = {"appliedFacets": {}, "limit": WORKDAY_PAGE,
                     "offset": page * WORKDAY_PAGE, "searchText": term}
@@ -368,10 +390,234 @@ def fetch_workday(slug, terms=None):
                     "url": f"https://{tenant}.{wd}.myworkdayjobs.com/{site}{path}",
                     "detail_url": base + path,
                 })
-            if len(posts) < WORKDAY_PAGE or (page + 1) * WORKDAY_PAGE >= data.get("total", 0):
+            # Some tenants (Leidos, Booz Allen) report `total` on the first page
+            # only and 0 after it; trusting each page's own figure stopped those
+            # boards at 40 postings.
+            total = data.get("total") or total
+            if len(posts) < WORKDAY_PAGE or (page + 1) * WORKDAY_PAGE >= total:
                 break
             time.sleep(SLEEP_BETWEEN)
     return jobs
+
+
+def _get_text(url, params=None, headers=HEADERS):
+    """GET returning the body as text; same single retry on a transient failure."""
+    for attempt in range(RETRIES + 1):
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=TIMEOUT)
+            break
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt == RETRIES:
+                raise
+            time.sleep(RETRY_BACKOFF)
+    r.raise_for_status()
+    return r.text
+
+
+# SAP SuccessFactors "Career Site Builder" — the careers site large defence and
+# industrial employers put in front of SuccessFactors (careers.<company>.com).
+# There is no JSON API; the search page is the same server-rendered table on
+# every one of these sites, so it is parsed directly.
+_SF_ROW = re.compile(r'<tr class="data-row">(.*?)</tr>', re.S)
+_SF_LINK = re.compile(r'<a href="([^"]+)" class="jobTitle-link">(.*?)</a>', re.S)
+_SF_LOC = re.compile(r'<span class="jobLocation">\s*(.*?)\s*</span>', re.S)
+_SF_DATE = re.compile(r'<span class="jobDate">\s*(.*?)\s*</span>', re.S)
+_SF_TOTAL = re.compile(r'paginationLabel[^>]*>.*?of\s*<b>([\d,]+)</b>', re.S)
+_SF_DESC = re.compile(r'<span class="jobdescription">(.*?)(?:class="job-location"|$)', re.S)
+_ZIP_TAIL = re.compile(r",\s*\d{5}(?:-\d{4})?$")
+
+
+def _sf_date(raw):
+    """'Sep 4, 2026' -> '2026-09-04' ('' if it doesn't parse)."""
+    try:
+        return dt.datetime.strptime(raw.strip(), "%b %d, %Y").date().isoformat()
+    except ValueError:
+        return ""
+
+
+def parse_successfactors(page, host):
+    """One search-results page -> (jobs, total postings matching the query)."""
+    jobs = []
+    for row in _SF_ROW.findall(page):
+        link = _SF_LINK.search(row)
+        if not link:
+            continue
+        path, title = link.groups()
+        loc, date = _SF_LOC.search(row), _SF_DATE.search(row)
+        url = f"https://{host}{path}"
+        jobs.append({
+            "id": f"successfactors:{host}:{path.rstrip('/').rsplit('/', 1)[-1]}",
+            "source": "successfactors", "company": _display(host), "slug": host,
+            "title": _strip_html(title),
+            # "San Diego, CA, US, 92127" — the zip adds nothing the filter reads
+            "location": _ZIP_TAIL.sub("", _strip_html(loc.group(1))) if loc else "",
+            "country": "", "description": "", "comp": "",
+            "posted": _sf_date(date.group(1)) if date else "",
+            "url": url, "detail_url": url,
+        })
+    total = _SF_TOTAL.search(page)
+    return jobs, int(total.group(1).replace(",", "")) if total else len(jobs)
+
+
+def fetch_successfactors(host, terms=None):
+    """Search a SuccessFactors career site once per term, paging through results.
+
+    Like Workday, the list has no description; hydrate_descriptions() reads the
+    job page for survivors of the title gate.
+    """
+    jobs, seen = [], set()
+    for term in (terms or WORKDAY_DEFAULT_TERMS):
+        for page in range(SF_MAX_PAGES):
+            batch, total = parse_successfactors(
+                _get_text(f"https://{host}/search/",
+                          {"q": term, "startrow": page * SF_PAGE}), host)
+            for j in batch:
+                if j["id"] not in seen:
+                    seen.add(j["id"])
+                    jobs.append(j)
+            if len(batch) < SF_PAGE or (page + 1) * SF_PAGE >= total:
+                break
+            time.sleep(SLEEP_BETWEEN)
+    return jobs
+
+
+# Radancy TalentBrew — a careers-site layer (careers.<company>.com/<lang>) over
+# whatever ATS sits behind it. The site's own search widget calls
+# search-jobs/results, which returns the result list as an HTML fragment inside
+# JSON. Its keyword parameter is ignored without the widget's full facet state,
+# so the whole board is listed and our own filter does the narrowing.
+_TB_ITEM = re.compile(
+    r'<a href="([^"]+)" data-job-id="(\d+)"[^>]*>\s*<h2>(.*?)</h2>(.*?)</a>', re.S)
+_TB_LOC = re.compile(r'<span class="results-facet job-location[^"]*">(.*?)</span>', re.S)
+_TB_PAGES = re.compile(r'data-total-pages="(\d+)"')
+
+
+def parse_talentbrew(fragment, slug):
+    """One results fragment -> (jobs, total pages)."""
+    host = slug.split("/", 1)[0]
+    jobs = []
+    for path, jid, title, rest in _TB_ITEM.findall(fragment):
+        loc = _TB_LOC.search(rest)
+        url = f"https://{host}{path}"
+        jobs.append({
+            "id": f"talentbrew:{host}:{jid}",
+            "source": "talentbrew", "company": _display(slug), "slug": slug,
+            "title": _strip_html(title),
+            "location": _strip_html(loc.group(1)) if loc else "",
+            "country": "", "description": "", "comp": "", "posted": "",
+            "url": url, "detail_url": url,
+        })
+    pages = _TB_PAGES.search(fragment)
+    return jobs, int(pages.group(1)) if pages else 1
+
+
+def fetch_talentbrew(slug):
+    jobs, seen = [], set()
+    for page in range(1, TALENTBREW_MAX_PAGES + 1):
+        data = requests.get(
+            f"https://{slug}/search-jobs/results",
+            params={"CurrentPage": page, "RecordsPerPage": TALENTBREW_PAGE,
+                    "ActiveFacetID": 0, "SearchType": 5,
+                    "SearchResultsModuleName": "Search Results",
+                    "SearchFiltersModuleName": "Search Filters"},
+            headers=dict(HEADERS, **{"X-Requested-With": "XMLHttpRequest"}),
+            timeout=TIMEOUT)
+        data.raise_for_status()
+        batch, pages = parse_talentbrew(data.json().get("results", ""), slug)
+        for j in batch:
+            if j["id"] not in seen:
+                seen.add(j["id"])
+                jobs.append(j)
+        if not batch or page >= pages:
+            break
+        time.sleep(SLEEP_BETWEEN)
+    return jobs
+
+
+# JazzHR — small-business ATS. Every account publishes an XML feed of its open
+# jobs, descriptions included. The feed carries no posting date, but the job id
+# is stamped with its creation time (job_20260922164316_...).
+_JAZZ_DATE = re.compile(r"^job_(\d{4})(\d{2})(\d{2})")
+
+
+def parse_jazzhr(xml_text, slug):
+    root = ET.fromstring(xml_text)
+    name = (root.findtext("company") or "").strip() or _display(slug)
+    jobs = []
+    for j in root.iter("job"):
+        if (j.findtext("status") or "Open").strip().lower() != "open":
+            continue
+        jid = (j.findtext("id") or "").strip()
+        d = _JAZZ_DATE.match(jid)
+        city, state = (j.findtext("city") or "").strip(), (j.findtext("state") or "").strip()
+        jobs.append({
+            "id": f"jazzhr:{slug}:{jid}",
+            "source": "jazzhr", "company": name, "slug": slug,
+            "title": (j.findtext("title") or "").strip(),
+            "location": ", ".join(p for p in (city, state) if p),
+            "country": (j.findtext("country") or "").strip(),
+            "url": (j.findtext("url") or "").strip(),
+            "description": _strip_html(j.findtext("description") or ""),
+            "comp": (j.findtext("type") or "").strip(),
+            "posted": "-".join(d.groups()) if d else "",
+        })
+    return jobs
+
+
+def fetch_jazzhr(slug):
+    # An unknown account answers 404, so a bad slug fails like any other board.
+    return parse_jazzhr(_get_text(JAZZHR.format(slug=slug)), slug)
+
+
+def _hydrate_workday(j):
+    info = _get(j["detail_url"]).get("jobPostingInfo", {}) or {}
+    j["description"] = _strip_html(info.get("jobDescription", ""))
+    j["posted"] = _iso_date(info.get("startDate"))
+    j["location"] = info.get("location") or j["location"]
+    j["country"] = (info.get("country") or {}).get("descriptor", "") \
+        if isinstance(info.get("country"), dict) else (info.get("country") or "")
+    if info.get("externalUrl"):
+        j["url"] = info["externalUrl"]
+
+
+def _hydrate_successfactors(j):
+    m = _SF_DESC.search(_get_text(j["detail_url"]))
+    if m:
+        j["description"] = _strip_html(m.group(1))
+
+
+_LD_JSON = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.S)
+
+
+def _hydrate_talentbrew(j):
+    """TalentBrew job pages carry a schema.org JobPosting with the full text."""
+    for block in _LD_JSON.findall(_get_text(j["detail_url"])):
+        try:
+            d = json.loads(block)
+        except ValueError:
+            continue
+        if not isinstance(d, dict) or d.get("@type") != "JobPosting":
+            continue
+        j["description"] = _strip_html(d.get("description", ""))
+        m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", d.get("datePosted") or "")
+        if m:
+            j["posted"] = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+        places = d.get("jobLocation") or []
+        places = places if isinstance(places, list) else [places]
+        locs = []
+        for p in places:
+            a = (p or {}).get("address") or {}
+            loc = ", ".join(x for x in (a.get("addressLocality"), a.get("addressRegion")) if x)
+            if loc and loc not in locs:
+                locs.append(loc)
+        if locs:
+            j["location"] = "; ".join(locs)
+        return
+
+
+_HYDRATORS = {"workday": _hydrate_workday,
+              "successfactors": _hydrate_successfactors,
+              "talentbrew": _hydrate_talentbrew}
 
 
 def hydrate_descriptions(jobs, log=None):
@@ -380,20 +626,14 @@ def hydrate_descriptions(jobs, log=None):
     Only called for jobs that already survived the title-level gate, so the
     request count tracks matches rather than the size of the employer.
     """
-    todo = [j for j in jobs if j.get("detail_url") and not j.get("description")]
+    todo = [j for j in jobs if j.get("detail_url") and not j.get("description")
+            and j.get("source") in _HYDRATORS]
     if not todo:
         return jobs
 
     def one(j):
         try:
-            info = _get(j["detail_url"]).get("jobPostingInfo", {}) or {}
-            j["description"] = _strip_html(info.get("jobDescription", ""))
-            j["posted"] = _iso_date(info.get("startDate"))
-            j["location"] = info.get("location") or j["location"]
-            j["country"] = (info.get("country") or {}).get("descriptor", "") \
-                if isinstance(info.get("country"), dict) else (info.get("country") or "")
-            if info.get("externalUrl"):
-                j["url"] = info["externalUrl"]
+            _HYDRATORS[j["source"]](j)
         except Exception:  # noqa: BLE001 — a missing detail must not kill the run
             pass
         return j
@@ -401,15 +641,18 @@ def hydrate_descriptions(jobs, log=None):
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         list(ex.map(one, todo))
     if log:
-        log(f"  hydrated {len(todo)} Workday descriptions")
+        log(f"  hydrated {len(todo)} descriptions (Workday / SuccessFactors / TalentBrew)")
     return jobs
 
 
 _FETCHERS = {
     "greenhouse": fetch_greenhouse, "lever": fetch_lever, "ashby": fetch_ashby,
     "smartrecruiters": fetch_smartrecruiters, "recruitee": fetch_recruitee,
-    "workday": fetch_workday,
+    "workday": fetch_workday, "successfactors": fetch_successfactors,
+    "talentbrew": fetch_talentbrew, "jazzhr": fetch_jazzhr,
 }
+# Sources whose fetcher takes the config's search terms (workday_search).
+_TERMED = {"workday", "successfactors"}
 
 
 # --------------------------------------------------------- broad sources
@@ -674,7 +917,7 @@ def _fetch_one(c):
         st["error"] = f"unknown source '{source}'"
         return st, [], f"! {source:15} {slug:24} -> unknown source"
     try:
-        jobs = fetcher(slug, c["terms"]) if source == "workday" else fetcher(slug)
+        jobs = fetcher(slug, c["terms"]) if source in _TERMED else fetcher(slug)
         st["ok"] = True
         st["count"] = len(jobs)
         return st, jobs, f"  {source:15} {slug:24} -> {len(jobs)} postings"

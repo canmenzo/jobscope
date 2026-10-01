@@ -301,8 +301,9 @@ def main():
 
     log("\n[2/4] Filtering (USA + selected sectors)...")
     kept, dropped = filter_jobs(jobs, scope)
-    # Workday's list endpoint carries no description, so those postings clear
-    # the first gate on their title alone. Fetch the real text for survivors
+    # Workday, SuccessFactors and TalentBrew lists carry no description, so
+    # those postings clear the first gate on their title alone. Fetch the
+    # real text for survivors
     # and re-run the gate — otherwise clearance-required roles slip through and
     # nothing downstream (years-of-experience, salary, skills) has text to read.
     pending = [j for j in kept if j.get("detail_url")]

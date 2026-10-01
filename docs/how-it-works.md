@@ -11,7 +11,7 @@ come from, how the score is actually computed, and how to work on the code.
 flowchart LR
   A[config.yaml<br/>taxonomy.yaml<br/>companies_catalog.yaml] --> B
   B[fetch.py<br/>6 ATS + 3 query APIs, 10 threads] --> C
-  C[filter.py<br/>USA · tech · no-clearance gate] --> D
+  C[filter.py<br/>USA · tech · clearance gate] --> D
   D[score.py + fit.py<br/>relevance · decay · reachability] --> E
   E[job_hunt.py] --> F[(runs/DATE/_run.json)] --> G[build_dashboard.py] --> H[(index.html)]
 ```
@@ -36,10 +36,12 @@ Missing config makes `job_hunt.py` print `NEEDS_SETUP` and exit 2.
 
 ## Where the postings come from
 
-Six ATS APIs fetched **by company** — Greenhouse, Lever, Ashby,
-SmartRecruiters, Recruitee, Workday — plus three APIs queried **by role**: The
-Muse, Adzuna, USAJOBS. All official, public, documented JSON endpoints. Nothing
-is scraped, and LinkedIn/Indeed are not touched.
+Nine ATSes fetched **by company** — Greenhouse, Lever, Ashby,
+SmartRecruiters, Recruitee, Workday, SuccessFactors, TalentBrew, JazzHR — plus
+three APIs queried **by role**: The Muse, Adzuna, USAJOBS. All public endpoints
+the employers publish themselves. SuccessFactors and TalentBrew have no JSON
+API, so the careers site's own search results are read instead.
+LinkedIn/Indeed are not touched.
 
 The by-role sources matter more than they look. A hand-curated catalog of
 security vendors and AI labs only ever returns security vendors and AI labs;
@@ -109,6 +111,9 @@ that ATS's public URL:
 | Ashby | `jobs.ashbyhq.com/<slug>` |
 | SmartRecruiters | `jobs.smartrecruiters.com/<slug>` |
 | Recruitee | `<slug>.recruitee.com` |
+| SuccessFactors | `<slug>/search/` (slug = careers host, e.g. `careers.bwxt.com`) |
+| TalentBrew | `<slug>/search-jobs` (slug = host + language, e.g. `careers.l3harris.com/en`) |
+| JazzHR | `<slug>.applytojob.com` |
 
 Workday is `tenant:wdN:site`, read off the careers URL — so
 `https://capitalone.wd12.myworkdayjobs.com/Capital_One` becomes

@@ -132,6 +132,12 @@ def test_drops_clearance_required(scope):
     assert "clearance" in dropped[0][1]
 
 
+def test_keeps_clearance_required_when_user_holds_one():
+    scope = build_scope(dict(CONFIG, has_clearance=True), TAXONOMY)
+    kept, _ = filter_jobs([_job(description="Requires an active TS/SCI clearance")], scope)
+    assert len(kept) == 1
+
+
 def test_drops_off_target(scope):
     _, dropped = filter_jobs(
         [_job(title="Warehouse Associate", description="lifting boxes")], scope)

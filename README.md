@@ -15,7 +15,7 @@ Postings come straight from company career pages and public job APIs. No LinkedI
 ![The board](docs/dashboard.png)
 
 ### ✨ Features
-- 🔌 Pulls live postings from public ATS APIs (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workday) plus The Muse, with optional Adzuna and USAJOBS keys
+- 🔌 Pulls live postings from public ATS APIs (Greenhouse, Lever, Ashby, SmartRecruiters, Recruitee, Workday, SuccessFactors, TalentBrew, JazzHR) plus The Muse, with optional Adzuna and USAJOBS keys
 - 💯 Scores every role 0 to 100 on two things: is it the job you asked for, and could you realistically get it (years, level, pay, tools from your resume)
 - 🏷️ Flags visa sponsorship (`SPONSORS` / `NO SPONSOR`) and ghost postings that sit open too long or get relisted
 - 🗂️ Drag-and-drop pipeline: Will apply, Applied, Screening, Interview, Offer, plus a closed strip for accepted, rejected and no-response roles
