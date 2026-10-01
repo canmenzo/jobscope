@@ -12,6 +12,9 @@
 #   ashby           -> https://jobs.ashbyhq.com/<slug>
 #   smartrecruiters -> https://jobs.smartrecruiters.com/<slug>
 #   recruitee       -> https://<slug>.recruitee.com/
+#   successfactors  -> https://<slug>/          (slug = the careers host)
+#   talentbrew      -> https://<slug>/search-jobs  (slug = host + language path)
+#   jazzhr          -> https://<slug>.applytojob.com/apply
 
 greenhouse:
   - abnormalsecurity
@@ -301,13 +304,35 @@ workday:
   - vystarcu:wd1:Careers          # Jacksonville FL credit union
   - bmo:wd3:External
   - southstatebank:wd5:External
-#
-# Defence contractors are deliberately ABSENT. leidos, gdit and caci all have
-# working boards with hundreds of security roles, but every one of them is
-# clearance-gated, so they survive the title filter, cost a paginated fetch
-# plus a description hydration each, and are then dropped to zero by the
-# clearance rule. Measured: 12 Leidos roles before hydration, 0 after. Add them
-# back only if the config stops filtering on clearance.
+  # Defence contractors — verified live 2026-10-01. Nearly every role here is
+  # clearance-gated, so with the default config they survive the title filter,
+  # cost a paginated fetch plus a description hydration each, and are then
+  # dropped by the clearance rule (measured: 12 Leidos roles before hydration,
+  # 0 after). They pay off only with `has_clearance: true` in config.
+  - ngc:wd1:Northrop_Grumman_External_Site
+  - leidos:wd5:External
+  - gdit:wd5:External_Career_Site
+  - globalhr:wd5:REC_RTX_Ext_Gateway     # RTX: Collins Aerospace, Raytheon, Pratt
+  - parsons:wd5:Search                   # includes Cromulence (acquired)
+  - bah:wd1:BAH_Jobs                     # Booz Allen Hamilton
+  - avav:wd1:AVAV                        # AeroVironment, incl. Tomahawk Robotics
+
+# SAP SuccessFactors career sites. Slug is the careers host; the search page is
+# parsed (no JSON API) and descriptions are hydrated like Workday's.
+# Verified live 2026-10-01. Clearance-gated like the defence block above.
+successfactors:
+  - careers.leonardodrs.com
+  - careers.bwxt.com
+
+# Radancy TalentBrew careers sites. Slug is host + language path, exactly as it
+# appears before /search-jobs in the site's URL. Verified live 2026-10-01.
+talentbrew:
+  - careers.l3harris.com/en
+
+# JazzHR — small-business ATS with a public XML feed per account. Slug is the
+# <slug>.applytojob.com subdomain. Verified live 2026-10-01.
+jazzhr:
+  - alluvionic           # Melbourne FL, federal PM / cyber
 
 # Probed and confirmed DEAD — no public board on that ATS. Don't re-add these
 # without re-probing; they cost a request and a failed-board row every run.
@@ -327,5 +352,8 @@ workday:
 #     snorkel galileo clay chroma qdrant anysphere skild figure runwayml
 #   (perplexityai was dead; the live slug is `perplexity` — now in the list)
 #   smartrecruiters: McAfee Bosch Ubisoft Avery
+#   No public board anywhere (checked 2026-10-01; they hire by email, Indeed or
+#   LinkedIn): Space Coast Intelligent Solutions (careers@ inbox), Cybersec
+#   Investments, Rampart-AI, Space Coast Cyber, Morsecom.
 # Note: SmartRecruiters returns HTTP 200 with 0 postings for a bad slug rather
 # than a 404 — validate those by posting count, not status code.

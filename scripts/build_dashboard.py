@@ -40,7 +40,8 @@ APPS_FILE = SKILL_ROOT / "applications.json"
 
 SOURCE_NAME = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
                "smartrecruiters": "SmartRecruiters", "recruitee": "Recruitee",
-               "workday": "Workday",
+               "workday": "Workday", "successfactors": "SuccessFactors",
+               "talentbrew": "TalentBrew", "jazzhr": "JazzHR",
                # Broad, query-based sources — these bring in employers that are
                # not in the catalog, so filtering on them shows you the roles a
                # curated list of tech boards can never surface.
@@ -63,6 +64,12 @@ SOURCE_BLURB = {
     "workday": "Runs the careers site of most large enterprises. Descriptions take a "
                "second request, so they are fetched only for roles that already pass "
                "the title filter.",
+    "successfactors": "SAP's ATS, behind many defence and industrial careers sites. "
+                      "No API — the site's search page is read, and descriptions are "
+                      "fetched only for roles that pass the title filter.",
+    "talentbrew": "A careers-site layer large employers put over their ATS. The whole "
+                  "board is listed; descriptions are fetched for title-filter survivors.",
+    "jazzhr": "Small-business ATS. One public feed per company, descriptions included.",
     "muse": "Public feed, no key needed. ~400k US postings from employers no curated "
             "catalog would list. Its own category tags are unreliable, so we pull wide "
             "and filter here.",
