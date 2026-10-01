@@ -4,7 +4,8 @@ description: >-
   Run the user's USA tech job search. Use when the user says "run my job hunt",
   "do my job search", "find me tech jobs", "set up my job hunt", or similar.
   Pulls live postings from public ATS APIs (Greenhouse, Lever, Ashby,
-  SmartRecruiters, Recruitee, Workday) plus broad job-search APIs (The Muse,
+  SmartRecruiters, Recruitee, Workday, SuccessFactors, TalentBrew, JazzHR) plus
+  broad job-search APIs (The Muse,
   Adzuna, USAJOBS), filters to USA-only tech roles in the user's
   chosen sub-sectors/titles, scores relevance 0-100, groups them by company, and
   opens a browsable web-app dashboard. First run walks the user through setup.
@@ -42,6 +43,9 @@ onboarding BEFORE searching. You drive this conversationally:
      QA/Test). Tech only.
    - **Target titles** (multiSelect) — show the titles under the chosen
      sub-sectors; tell the user they can name extra titles too (free text).
+   - **Security clearance** — do they hold one (or are being sponsored)? If
+     yes, write `has_clearance: true`; otherwise every posting that mentions a
+     clearance is dropped, which is nearly all defence-contractor work.
    - **Companies** — default to `all` (every catalog entry). Offer: search all,
      or restrict to a subset. Most users want `all` since failed boards are
      surfaced and prunable in the dashboard.
@@ -127,10 +131,15 @@ and applies to everything himself.
 
 ## Notes
 - **Board sources** (per company): Greenhouse, Lever, Ashby, SmartRecruiters,
-  Recruitee, Workday — all free, public, no API key. Adding a company = add its
-  slug under the right source in `config/companies_catalog.yaml`. Workday slugs
-  are `tenant:wdN:site` and carry the enterprise/finance/MSSP roles the startup
-  boards lack; their descriptions are hydrated after the title gate.
+  Recruitee, Workday, SuccessFactors, TalentBrew, JazzHR — all free, public, no
+  API key. Adding a company = add its slug under the right source in
+  `config/companies_catalog.yaml`. Workday slugs are `tenant:wdN:site` and carry
+  the enterprise/finance/MSSP roles the startup boards lack. SuccessFactors
+  slugs are the careers host, TalentBrew slugs are host + language path. All
+  three list without descriptions, which are hydrated after the title gate.
+- **Defence contractors** (Northrop, Leidos, L3Harris, ...) are in the catalog,
+  but nearly every role they post names a clearance and is dropped unless
+  `has_clearance: true` is set in config.
 - **Broad sources** (per role, `broad_sources:` in config): The Muse (no key),
   Adzuna and USAJOBS (free keys). These exist because a hand-curated catalog can
   only ever contain companies somebody thought to add, which skews it toward
