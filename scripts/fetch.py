@@ -200,7 +200,7 @@ def _iso_date(val):
         return ""
     if isinstance(val, (int, float)):
         try:
-            return dt.datetime.fromtimestamp(val / 1000, dt.timezone.utc).date().isoformat()
+            return dt.datetime.fromtimestamp(val / 1000, dt.UTC).date().isoformat()
         except (OverflowError, OSError, ValueError):
             return ""
     m = re.match(r"(\d{4}-\d{2}-\d{2})", str(val))

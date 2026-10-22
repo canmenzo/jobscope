@@ -5,10 +5,13 @@ from build_dashboard import (
     GHOST_OPEN_DAYS,
     age_text,
     enrich,
+    fill,
     merge_duplicates,
     norm_title,
     region_text,
+    safe_url,
     sal_num,
+    script_json,
     state_tokens,
 )
 from job_hunt import annotate_history
@@ -218,3 +221,26 @@ def test_merged_role_with_a_remote_copy_is_both():
             _enriched("Sec Eng", "Acme", "Remote - USA", 88)]
     out, _ = merge_duplicates(jobs)
     assert state_tokens(out[0]) == ["TX", ANY_STATE]
+
+
+# --- inlining untrusted posting data ---------------------------------------
+
+def test_script_json_cannot_close_the_script_tag():
+    out = script_json({"t": "</script><script>alert(1)</script>&"})
+    assert "<" not in out and ">" not in out and "&" not in out
+
+
+def test_fill_does_not_expand_tokens_inside_substituted_data():
+    assert fill("__A__ __B__", {"__A__": "__B__", "__B__": "x"}) == "__B__ x"
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://a.example/j/1", "https://a.example/j/1"),
+    ("HTTP://a.example", "HTTP://a.example"),
+    ("javascript:alert(1)", ""),
+    ("data:text/html,x", ""),
+    ("", ""),
+    (None, ""),
+])
+def test_safe_url_allows_only_http(url, expected):
+    assert safe_url(url) == expected

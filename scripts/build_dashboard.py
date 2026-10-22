@@ -174,6 +174,21 @@ def esc(s):
     return html.escape(str(s or ""))
 
 
+def safe_url(u):
+    return u if re.match(r"https?://", u or "", re.I) else ""
+
+
+def script_json(o):
+    """json.dumps safe to inline in <script> (ensure_ascii already escapes U+2028/9)."""
+    return (json.dumps(o).replace("<", "\\u003c").replace(">", "\\u003e")
+            .replace("&", "\\u0026"))
+
+
+def fill(template, subs):
+    # One pass, so a __TOKEN__ inside substituted data is never expanded.
+    return re.sub(r"__[A-Z_]+__", lambda m: subs.get(m.group(0), m.group(0)), template)
+
+
 def slug(s):
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
@@ -340,7 +355,7 @@ def row(j):
        data-salnum="{sal_num(j.get('salary'))}" data-ttl="{esc(j['title'].lower())}"
        data-comp="{esc(j['comp'].lower())}" data-loc="{esc(region_text(j).lower())}">
     <div class="sc{band}"{score_tip}>{j['score']}</div>
-    <div class="rt"><a href="{esc(j['url'])}" target="_blank" rel="noopener">{esc(j['title'])}</a>{badges}</div>
+    <div class="rt"><a href="{esc(safe_url(j['url']))}" target="_blank" rel="noopener">{esc(j['title'])}</a>{badges}</div>
     <div class="rc">{esc(j['comp'])}</div>
     <div class="rl" title="{esc(" · ".join(j.get("_locs") or [j["_region"]]))}">{esc(region_text(j))}</div>
     <div class="ra{stale}">{age_text(j)}</div>
@@ -455,7 +470,7 @@ def company_data(raw, jobs):
         counts[slug(j["comp"])] = counts.get(slug(j["comp"]), 0) + 1
     out = [{"n": c["name"], "g": slug(c["name"]),
             "src": SOURCE_NAME.get(c["source"], c["source"]),
-            "u": c.get("careers_url") or "", "p": c.get("postings") or 0,
+            "u": safe_url(c.get("careers_url")), "p": c.get("postings") or 0,
             "m": counts.get(slug(c["name"]), 0),
             "e": "" if c.get("ok") else (c.get("error") or "fetch failed")}
            for c in raw]
@@ -688,43 +703,45 @@ def build(date=None, do_open=True):
 
     # Compact job index the JS builds kanban cards from, so a tracked role still
     # renders on the board while filtered out of the list.
-    jobs_js = {j["id"]: {"title": j["title"], "comp": j["comp"], "url": j["url"],
+    jobs_js = {j["id"]: {"title": j["title"], "comp": j["comp"], "url": safe_url(j["url"]),
                          "region": region_text(j), "age": age_text(j),
                          "salary": j.get("salary") or "", "score": j["score"]}
                for j in jobs}
 
     sources = source_data(data["companies"], jobs, data.get("sources"))
 
-    js = (JS
-          .replace("__JOBS__", json.dumps(jobs_js))
-          .replace("__COMPANY_DATA__", json.dumps(company_data(data["companies"], jobs)))
-          .replace("__SOURCE_DATA__", json.dumps(sources))
-          .replace("__STAGES__", json.dumps(STAGES))
-          .replace("__BOARD_STAGES__", json.dumps(BOARD_STAGES))
-          .replace("__CLOSED_STAGES__", json.dumps(CLOSED_STAGES))
-          .replace("__FACET_DEFS__", json.dumps(FACETS))
-          .replace("__FACET_META__", json.dumps(facet_meta(jobs)))
-          .replace("__PRIMARY_FACETS__", json.dumps(PRIMARY_FACETS))
-          .replace("__STALE_BUCKETS__", json.dumps(list(STALE_BUCKETS)))
-          .replace("__APPS__", json.dumps(apps)))
+    js = fill(JS, {
+        "__JOBS__": script_json(jobs_js),
+        "__COMPANY_DATA__": script_json(company_data(data["companies"], jobs)),
+        "__SOURCE_DATA__": script_json(sources),
+        "__STAGES__": script_json(STAGES),
+        "__BOARD_STAGES__": script_json(BOARD_STAGES),
+        "__CLOSED_STAGES__": script_json(CLOSED_STAGES),
+        "__FACET_DEFS__": script_json(FACETS),
+        "__FACET_META__": script_json(facet_meta(jobs)),
+        "__PRIMARY_FACETS__": script_json(PRIMARY_FACETS),
+        "__STALE_BUCKETS__": script_json(list(STALE_BUCKETS)),
+        "__APPS__": script_json(apps),
+    })
 
     ghosts = sum(1 for j in jobs if j["_ghost"])
-    page = (PAGE
-            .replace("__CSS__", CSS)
-            .replace("__FILTERS__", build_filters())
-            .replace("__SCORETIP__", esc(SCORE_TIP))
-            .replace("__MERGED__", str(merged))
-            .replace("__ROWS__", "\n".join(row(j) for j in jobs))
-            .replace("__COLUMNS__", build_columns())
-            .replace("__CLOSED__", build_closed())
-            .replace("__JOBS__", str(len(jobs)))
-            .replace("__COMPANIES__", str(len({j["comp"] for j in jobs})))
-            .replace("__SOURCES_ON__", str(sum(1 for s in sources if s["m"])))
-            .replace("__SOURCES__", str(len(sources)))
-            .replace("__GHOSTS__", str(ghosts))
-            .replace("__JS__", js)
-            .replace("__BUILT__", dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
-            .replace("__DATE__", esc(data["date"])))
+    page = fill(PAGE, {
+        "__CSS__": CSS,
+        "__FILTERS__": build_filters(),
+        "__SCORETIP__": esc(SCORE_TIP),
+        "__MERGED__": str(merged),
+        "__ROWS__": "\n".join(row(j) for j in jobs),
+        "__COLUMNS__": build_columns(),
+        "__CLOSED__": build_closed(),
+        "__JOBS__": str(len(jobs)),
+        "__COMPANIES__": str(len({j["comp"] for j in jobs})),
+        "__SOURCES_ON__": str(sum(1 for s in sources if s["m"])),
+        "__SOURCES__": str(len(sources)),
+        "__GHOSTS__": str(ghosts),
+        "__JS__": js,
+        "__BUILT__": dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "__DATE__": esc(data["date"]),
+    })
 
     out = run_dir / "index.html"
     out.write_text(page, encoding="utf-8")

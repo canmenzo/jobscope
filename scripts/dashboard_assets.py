@@ -564,6 +564,7 @@ const SOURCES = __SOURCE_DATA__;     // every provider available, on or off
 const LSKEY = 'jobscope.apps', VIEWKEY = 'jobscope.view';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 const rows = $$('.row'), rows_ = rows;
 const q = $('#q'), rowsEl = $('#rows'), tip = $('#tip');
 
@@ -679,7 +680,7 @@ function move(id, next) {
   setStage(id, next, true);
   undoState = { id, before };
   render();
-  toast(`${jobOf(id).title} \u2192 ${label(next)}`, () => {
+  toast(`${esc(jobOf(id).title)} \u2192 ${label(next)}`, () => {
     if (undoState.before) APPS[undoState.id] = undoState.before;
     else delete APPS[undoState.id];
     saveApps(); render();
@@ -786,8 +787,8 @@ function renderMenu(dd, field) {
       const sw = f === 'status'
         ? `<span class="sw" style="background:var(${cvar(o.v)})"></span>` : '';
       return `<label class="fddopt${o.n ? '' : ' zero'}" data-f="${f}">`
-        + `<input type="checkbox" value="${o.v}"${on ? ' checked' : ''}>${sw}`
-        + `<span>${o.label}</span><span class="fct">${o.n}</span></label>`;
+        + `<input type="checkbox" value="${esc(o.v)}"${on ? ' checked' : ''}>${sw}`
+        + `<span>${esc(o.label)}</span><span class="fct">${o.n}</span></label>`;
     }).join('');
   });
   list.innerHTML = out || '<div class="fddempty">No match.</div>';
@@ -878,16 +879,16 @@ function kcard(id) {
   // anchor matters: without it the browser hijacks the card's drag with its own
   // link-drag, and the card can no longer be moved by grabbing its title.
   const title = j.url
-    ? `<a class="kt" href="${j.url}" target="_blank" rel="noopener" draggable="false"
-         data-tip="Open the posting to apply">${j.title}</a>`
-    : `<span class="kt">${j.title}</span>`;
-  const where = [j.region, j.age].filter(Boolean).join(' \\u00b7 ');
+    ? `<a class="kt" href="${esc(j.url)}" target="_blank" rel="noopener" draggable="false"
+         data-tip="Open the posting to apply">${esc(j.title)}</a>`
+    : `<span class="kt">${esc(j.title)}</span>`;
+  const where = esc([j.region, j.age].filter(Boolean).join(' \\u00b7 '));
   div.innerHTML = `<button class="kx" data-tip="Back to Not applied">\\u00d7</button>
-    ${title}<div class="kco">${j.comp}</div>
+    ${title}<div class="kco">${esc(j.comp)}</div>
     <div class="kmeta">${where ? '<span>' + where + '</span>' : ''}
       ${j.gone ? '<span class="gtag" data-tip="<b>No longer in the run.</b> The posting has closed, or it was relisted under a new id. Your stage, dates and notes are kept.">GONE</span>' : ''}
       ${note ? '<span class="nbadge" data-tip="Has a note">\\u270e</span>' : ''}
-      <span class="ks">${j.salary || ''}</span></div>`;
+      <span class="ks">${esc(j.salary)}</span></div>`;
   return div;
 }
 
@@ -952,11 +953,11 @@ function drawClosed() {
     + `border-radius:50%"></span>${label(k)}<span class="n">${ids.length}</span></div>`
     + '<div class="clpb">' + ids.map(id => {
         const j = jobOf(id), from = exitFrom(id), d = dateOf(id);
-        const meta = [from ? `<span class="aft">after ${label(from)}</span>` : '', j.comp, d]
+        const meta = [from ? `<span class="aft">after ${label(from)}</span>` : '', esc(j.comp), esc(d)]
           .filter(Boolean).join(' · ');
-        const t = j.url ? `<a class="clr" href="${j.url}" target="_blank" rel="noopener"`
+        const t = j.url ? `<a class="clr" href="${esc(j.url)}" target="_blank" rel="noopener"`
                         : '<div class="clr"';
-        return `${t} data-id="${id}"><div class="clrt">${j.title}</div>`
+        return `${t} data-id="${esc(id)}"><div class="clrt">${esc(j.title)}</div>`
           + `<div class="clrm">${meta}</div>${j.url ? '</a>' : '</div>'}`;
       }).join('') + '</div>'
     + '<div class="clpf">Right-click a row to put it back in the pipeline</div>';
@@ -1112,7 +1113,7 @@ function openCtx(id, x, y) {
   };
   const m = document.createElement('div');
   m.className = 'ctx';
-  m.innerHTML = `<div class="ctxh">Stage</div><div class="ctxt">${j.title}</div>`
+  m.innerHTML = `<div class="ctxh">Stage</div><div class="ctxt">${esc(j.title)}</div>`
     + BOARD_STAGES.map(item).join('')
     + '<div class="ctxh">Closed</div>' + CLOSED_STAGES.map(item).join('')
     + (cur === 'none' ? ''
@@ -1419,15 +1420,15 @@ function compCard(c) {
             : c.m ? c.p + ' open'
             : c.p ? '0 of ' + c.p + ' roles fit your filters'
                   : 'no open roles';
-  const meta = `<div class="cmeta${c.e ? ' err' : ''}">${c.src} &middot; ${why}</div>`;
+  const meta = `<div class="cmeta${c.e ? ' err' : ''}">${esc(c.src)} &middot; ${esc(why)}</div>`;
   const tip = c.m ? 'Click to show only this company&rsquo;s roles'
             : c.e ? 'This board could not be fetched, so none of its roles are in the run.'
                   : 'Searched, but nothing here matched your titles and filters &mdash;'
                     + ' there is nothing to filter to.';
-  const go = c.u ? `<a class="cgo" href="${c.u}" target="_blank" rel="noopener"
+  const go = c.u ? `<a class="cgo" href="${esc(c.u)}" target="_blank" rel="noopener"
                        data-tip="Open the careers page">&#8599;</a>` : '';
-  return `<div class="ccard${dim}" data-slug="${c.g}" data-name="${c.n}" data-tip="${tip}">
-    <div class="cinfo"><div class="cname">${c.n}</div>${meta}</div>
+  return `<div class="ccard${dim}" data-slug="${esc(c.g)}" data-name="${esc(c.n)}" data-tip="${tip}">
+    <div class="cinfo"><div class="cname">${esc(c.n)}</div>${meta}</div>
     <span class="ccount">${c.m}</span>${go}</div>`;
 }
 
@@ -1469,7 +1470,7 @@ compBody.addEventListener('click', e => {
   // Its roles can still all be stale or already tracked, and a list that goes
   // empty right after a click reads as a broken filter rather than an active one.
   if ($('#shown').textContent === '0')
-    toast(card.dataset.name + ': every role is hidden by your other filters', null);
+    toast(esc(card.dataset.name) + ': every role is hidden by your other filters', null);
 });
 
 /* --------------------------------------------------------- sources sheet */
@@ -1532,7 +1533,7 @@ srcBody.addEventListener('click', e => {
   showTab('board');
   render();
   if ($('#shown').textContent === '0')
-    toast(card.dataset.name + ': every role from it is hidden by your other filters', null);
+    toast(esc(card.dataset.name) + ': every role from it is hidden by your other filters', null);
 });
 
 /* ----------------------------------------------------------------- views */
